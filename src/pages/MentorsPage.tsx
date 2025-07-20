@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -20,9 +20,41 @@ import {
 } from 'lucide-react'
 
 const MentorsPage = () => {
+  const [searchParams] = useSearchParams()
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedExpertise, setSelectedExpertise] = useState('all')
   const [selectedExperience, setSelectedExperience] = useState('all')
+  const [serviceType, setServiceType] = useState('')
+
+  useEffect(() => {
+    const service = searchParams.get('service')
+    if (service) {
+      setServiceType(service)
+      // Set appropriate search terms based on service
+      switch (service) {
+        case 'resume-review':
+          setSearchQuery('resume')
+          break
+        case 'resume-rebuild':
+          setSearchQuery('resume')
+          break
+        case 'interview-cheatsheet':
+          setSearchQuery('interview')
+          break
+        case 'linkedin-strategy':
+          setSearchQuery('linkedin networking')
+          break
+        case 'portfolio-consultation':
+          setSearchQuery('portfolio')
+          break
+        case 'ai-setup':
+          setSearchQuery('AI assistant')
+          break
+        default:
+          break
+      }
+    }
+  }, [searchParams])
 
   const mentors = [
     {
@@ -167,8 +199,31 @@ const MentorsPage = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-foreground mb-2">Find Your Perfect Mentor</h1>
-          <p className="text-muted-foreground">Connect with industry experts who can accelerate your career growth</p>
+          {serviceType ? (
+            <div>
+              <h1 className="text-3xl font-bold text-foreground mb-2">
+                {serviceType === 'resume-review' && 'Resume Review Experts'}
+                {serviceType === 'resume-rebuild' && 'Resume Rebuild Specialists'}
+                {serviceType === 'interview-cheatsheet' && 'Interview Preparation Mentors'}
+                {serviceType === 'linkedin-strategy' && 'LinkedIn & Networking Experts'}
+                {serviceType === 'portfolio-consultation' && 'Portfolio Design Consultants'}
+                {serviceType === 'ai-setup' && 'AI Assistant Setup Specialists'}
+              </h1>
+              <p className="text-muted-foreground">
+                {serviceType === 'resume-review' && 'Get your resume reviewed by industry experts who know what recruiters want'}
+                {serviceType === 'resume-rebuild' && 'Work with specialists to completely rebuild your resume for maximum impact'}
+                {serviceType === 'interview-cheatsheet' && 'Create personalized interview cheatsheets with experienced mentors'}
+                {serviceType === 'linkedin-strategy' && 'Master LinkedIn optimization and networking strategies with proven experts'}
+                {serviceType === 'portfolio-consultation' && 'Get expert guidance on creating a portfolio that showcases your skills'}
+                {serviceType === 'ai-setup' && 'Get help setting up and optimizing your AI job search assistant'}
+              </p>
+            </div>
+          ) : (
+            <div>
+              <h1 className="text-3xl font-bold text-foreground mb-2">Find Your Perfect Mentor</h1>
+              <p className="text-muted-foreground">Connect with industry experts who can accelerate your career growth</p>
+            </div>
+          )}
         </div>
 
         {/* Filters */}
