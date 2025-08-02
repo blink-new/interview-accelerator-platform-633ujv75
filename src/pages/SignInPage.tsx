@@ -15,18 +15,19 @@ export default function SignInPage() {
   const [fullName, setFullName] = useState('')
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
-  const [isLoading, setIsLoading] = useState(false)
+  const [isSigningIn, setIsSigningIn] = useState(false)
+  const [isSigningUp, setIsSigningUp] = useState(false)
   const { signIn, signUp } = useAuth()
   const navigate = useNavigate()
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
-    setIsLoading(true)
+    setIsSigningIn(true)
 
     if (!email || !password) {
       setError('Please enter both email and password')
-      setIsLoading(false)
+      setIsSigningIn(false)
       return
     }
 
@@ -41,13 +42,14 @@ export default function SignInPage() {
         } else {
           setError(error.message)
         }
+        setIsSigningIn(false)
       } else {
+        // Success - navigation will be handled by auth state change
         navigate('/dashboard')
       }
     } catch (err) {
       setError('An unexpected error occurred. Please try again.')
-    } finally {
-      setIsLoading(false)
+      setIsSigningIn(false)
     }
   }
 
@@ -55,17 +57,25 @@ export default function SignInPage() {
     e.preventDefault()
     setError('')
     setSuccess('')
-    setIsLoading(true)
+    setIsSigningUp(true)
 
     if (!email || !password || !fullName) {
       setError('Please fill in all fields')
-      setIsLoading(false)
+      setIsSigningUp(false)
       return
     }
 
     if (password.length < 6) {
       setError('Password must be at least 6 characters long')
-      setIsLoading(false)
+      setIsSigningUp(false)
+      return
+    }
+
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(email)) {
+      setError('Please enter a valid email address')
+      setIsSigningUp(false)
       return
     }
 
@@ -75,19 +85,23 @@ export default function SignInPage() {
       if (error) {
         if (error.message.includes('already registered')) {
           setError('An account with this email already exists. Please sign in instead.')
+        } else if (error.message.includes('rate limit')) {
+          setError('Too many signup attempts. Please wait a moment and try again.')
         } else {
           setError(error.message)
         }
+        setIsSigningUp(false)
       } else {
         setSuccess('Account created successfully! Please check your email to verify your account before signing in.')
+        // Clear form
         setEmail('')
         setPassword('')
         setFullName('')
+        setIsSigningUp(false)
       }
     } catch (err) {
       setError('An unexpected error occurred. Please try again.')
-    } finally {
-      setIsLoading(false)
+      setIsSigningUp(false)
     }
   }
 
@@ -128,7 +142,8 @@ export default function SignInPage() {
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="Enter your email"
-                      disabled={isLoading}
+                      disabled={isSigningIn}
+                      autoComplete="email"
                     />
                   </div>
                   
@@ -140,7 +155,8 @@ export default function SignInPage() {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="Enter your password"
-                      disabled={isLoading}
+                      disabled={isSigningIn}
+                      autoComplete="current-password"
                     />
                   </div>
 
@@ -153,9 +169,9 @@ export default function SignInPage() {
                   <Button 
                     type="submit" 
                     className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
-                    disabled={isLoading}
+                    disabled={isSigningIn}
                   >
-                    {isLoading ? (
+                    {isSigningIn ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                         Signing In...
@@ -177,7 +193,8 @@ export default function SignInPage() {
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value)}
                       placeholder="Enter your full name"
-                      disabled={isLoading}
+                      disabled={isSigningUp}
+                      autoComplete="name"
                     />
                   </div>
                   
@@ -189,7 +206,8 @@ export default function SignInPage() {
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="Enter your email"
-                      disabled={isLoading}
+                      disabled={isSigningUp}
+                      autoComplete="email"
                     />
                   </div>
                   
@@ -201,7 +219,8 @@ export default function SignInPage() {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="Create a password (min 6 characters)"
-                      disabled={isLoading}
+                      disabled={isSigningUp}
+                      autoComplete="new-password"
                     />
                   </div>
 
@@ -221,9 +240,9 @@ export default function SignInPage() {
                   <Button 
                     type="submit" 
                     className="w-full bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700"
-                    disabled={isLoading}
+                    disabled={isSigningUp}
                   >
-                    {isLoading ? (
+                    {isSigningUp ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                         Creating Account...

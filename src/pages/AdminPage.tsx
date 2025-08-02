@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Progress } from "@/components/ui/progress"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
-import { Users, Shield, Trash2, Loader2, UserX, CheckCircle } from "lucide-react"
+import { Users, Shield, Trash2, Loader2, UserX, CheckCircle, RefreshCw } from "lucide-react"
 import { useAuth } from "@/hooks/useAuth"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
@@ -28,52 +28,69 @@ export default function AdminPage() {
   const { user, userProfile } = useAuth()
   const [users, setUsers] = useState<UserProfile[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
 
   // Check if user is admin
   const isAdmin = user && userProfile?.role === 'admin'
 
-  const fetchUsersWithProgress = async () => {
+  // Optimized function to fetch users with progress in a single query
+  const fetchUsersWithProgress = useCallback(async () => {
     try {
-      // First get all users
+      // Use a more efficient query with LEFT JOIN to get completion data
       const { data: usersData, error: usersError } = await supabase
         .from('user_profiles')
-        .select('*')
+        .select(`
+          id,
+          full_name,
+          email,
+          role,
+          created_at,
+          avatar_url
+        `)
         .order('created_at', { ascending: false })
 
       if (usersError) throw usersError
 
-      // Then get completion data for each user
-      const usersWithProgress = await Promise.all(
-        (usersData || []).map(async (user) => {
-          const { data: completions, error: completionsError } = await supabase
-            .from('week_completions')
-            .select('week_number, completed')
-            .eq('user_id', user.id)
-            .eq('completed', true)
+      // Get all completion data in one query
+      const { data: completionsData, error: completionsError } = await supabase
+        .from('week_completions')
+        .select('user_id, week_number, completed')
+        .eq('completed', true)
 
-          if (completionsError) {
-            console.error('Error fetching completions for user:', user.id, completionsError)
-          }
+      if (completionsError) {
+        console.error('Error fetching completions:', completionsError)
+      }
 
-          const completedWeeks = completions?.length || 0
-          const journeyCompletion = Math.round((completedWeeks / 8) * 100) // 8 weeks total
-
-          return {
-            ...user,
-            completed_weeks: completedWeeks,
-            journey_completion: journeyCompletion,
-            is_active: user.role !== 'deactivated'
-          }
+      // Create a map of user completions for efficient lookup
+      const completionsMap = new Map<string, number>()
+      if (completionsData) {
+        completionsData.forEach(completion => {
+          const current = completionsMap.get(completion.user_id) || 0
+          completionsMap.set(completion.user_id, current + 1)
         })
-      )
+      }
+
+      // Combine user data with completion data
+      const usersWithProgress = (usersData || []).map(user => {
+        const completedWeeks = completionsMap.get(user.id) || 0
+        const journeyCompletion = Math.round((completedWeeks / 8) * 100) // 8 weeks total
+
+        return {
+          ...user,
+          completed_weeks: completedWeeks,
+          journey_completion: journeyCompletion,
+          is_active: user.role !== 'deactivated'
+        }
+      })
 
       setUsers(usersWithProgress)
     } catch (error) {
       console.error('Error fetching users:', error)
       toast.error('Failed to load users')
     }
-  }
+  }, [])
 
+  // Initial load
   useEffect(() => {
     const loadData = async () => {
       setLoading(true)
@@ -81,7 +98,60 @@ export default function AdminPage() {
       setLoading(false)
     }
     loadData()
-  }, [])
+  }, [fetchUsersWithProgress])
+
+  // Set up real-time subscriptions for user changes
+  useEffect(() => {
+    if (!isAdmin) return
+
+    // Subscribe to user_profiles changes
+    const userProfilesSubscription = supabase
+      .channel('user_profiles_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'user_profiles'
+        },
+        (payload) => {
+          console.log('User profile change detected:', payload)
+          // Refresh data when users are added/updated/deleted
+          fetchUsersWithProgress()
+        }
+      )
+      .subscribe()
+
+    // Subscribe to week_completions changes
+    const weekCompletionsSubscription = supabase
+      .channel('week_completions_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'week_completions'
+        },
+        (payload) => {
+          console.log('Week completion change detected:', payload)
+          // Refresh data when progress changes
+          fetchUsersWithProgress()
+        }
+      )
+      .subscribe()
+
+    return () => {
+      userProfilesSubscription.unsubscribe()
+      weekCompletionsSubscription.unsubscribe()
+    }
+  }, [isAdmin, fetchUsersWithProgress])
+
+  const handleRefresh = async () => {
+    setRefreshing(true)
+    await fetchUsersWithProgress()
+    setRefreshing(false)
+    toast.success('Data refreshed!')
+  }
 
   const handleUpdateUserRole = async (userId: string, newRole: string) => {
     try {
@@ -92,7 +162,7 @@ export default function AdminPage() {
 
       if (error) throw error
       toast.success('User role updated successfully!')
-      fetchUsersWithProgress()
+      // Real-time subscription will handle the refresh
     } catch (error) {
       console.error('Error updating user role:', error)
       toast.error('Failed to update user role')
@@ -108,7 +178,7 @@ export default function AdminPage() {
 
       if (error) throw error
       toast.success('User access revoked successfully!')
-      fetchUsersWithProgress()
+      // Real-time subscription will handle the refresh
     } catch (error) {
       console.error('Error revoking user access:', error)
       toast.error('Failed to revoke user access')
@@ -124,7 +194,7 @@ export default function AdminPage() {
 
       if (error) throw error
       toast.success('User access restored successfully!')
-      fetchUsersWithProgress()
+      // Real-time subscription will handle the refresh
     } catch (error) {
       console.error('Error restoring user access:', error)
       toast.error('Failed to restore user access')
@@ -147,7 +217,7 @@ export default function AdminPage() {
 
       if (error) throw error
       toast.success('User deleted successfully!')
-      fetchUsersWithProgress()
+      // Real-time subscription will handle the refresh
     } catch (error) {
       console.error('Error deleting user:', error)
       toast.error('Failed to delete user')
@@ -197,6 +267,15 @@ export default function AdminPage() {
               </h1>
               <p className="text-gray-600">Manage users and monitor journey progress</p>
             </div>
+            <Button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              variant="outline"
+              className="flex items-center gap-2"
+            >
+              <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+              {refreshing ? 'Refreshing...' : 'Refresh'}
+            </Button>
           </div>
         </div>
 
@@ -269,7 +348,7 @@ export default function AdminPage() {
           <CardHeader>
             <CardTitle>User Management</CardTitle>
             <CardDescription>
-              Manage user accounts, roles, and track journey progress
+              Manage user accounts, roles, and track journey progress. Updates automatically when changes occur.
             </CardDescription>
           </CardHeader>
           <CardContent>

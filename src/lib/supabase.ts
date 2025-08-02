@@ -8,36 +8,11 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: true,
-    flowType: 'pkce',
-    storage: {
-      getItem: (key: string) => {
-        try {
-          return localStorage.getItem(key)
-        } catch {
-          return null
-        }
-      },
-      setItem: (key: string, value: string) => {
-        try {
-          localStorage.setItem(key, value)
-        } catch {
-          // Ignore storage errors
-        }
-      },
-      removeItem: (key: string) => {
-        try {
-          localStorage.removeItem(key)
-        } catch {
-          // Ignore storage errors
-        }
-      }
-    }
+    flowType: 'pkce'
   },
   global: {
     headers: {
-      'Cache-Control': 'no-cache, no-store, must-revalidate',
-      'Pragma': 'no-cache',
-      'Expires': '0'
+      'Cache-Control': 'no-cache'
     }
   },
   db: {
@@ -45,7 +20,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
   realtime: {
     params: {
-      eventsPerSecond: 10
+      eventsPerSecond: 5
     }
   }
 })
@@ -59,6 +34,7 @@ export interface UserProfile {
   bio?: string
   linkedin_url?: string
   github_url?: string
+  role?: string
   created_at: string
   updated_at: string
 }
@@ -109,133 +85,173 @@ export interface Booking {
   created_at: string
 }
 
-// Simplified helper functions
+// Optimized helper functions with error handling
 export const getCompletedWeeks = async (userId: string): Promise<number[]> => {
-  const { data, error } = await supabase
-    .from('week_completions')
-    .select('week_number')
-    .eq('user_id', userId)
-    .eq('completed', true)
-  
-  if (error) {
-    console.error('Error fetching completed weeks:', error)
+  try {
+    const { data, error } = await supabase
+      .from('week_completions')
+      .select('week_number')
+      .eq('user_id', userId)
+      .eq('completed', true)
+    
+    if (error) {
+      console.error('Error fetching completed weeks:', error)
+      return []
+    }
+    
+    return data ? data.map(w => w.week_number) : []
+  } catch (error) {
+    console.error('Error in getCompletedWeeks:', error)
     return []
   }
-  
-  return data ? data.map(w => w.week_number) : []
 }
 
 export const markWeekComplete = async (weekNumber: number, userId: string): Promise<void> => {
-  const { error } = await supabase
-    .from('week_completions')
-    .upsert({
-      user_id: userId,
-      week_number: weekNumber,
-      completed: true,
-      completed_at: new Date().toISOString()
-    })
-  
-  if (error) {
-    console.error('Error marking week complete:', error)
+  try {
+    const { error } = await supabase
+      .from('week_completions')
+      .upsert({
+        user_id: userId,
+        week_number: weekNumber,
+        completed: true,
+        completed_at: new Date().toISOString()
+      })
+    
+    if (error) {
+      console.error('Error marking week complete:', error)
+      throw error
+    }
+  } catch (error) {
+    console.error('Error in markWeekComplete:', error)
     throw error
   }
 }
 
 export const getUserJobApplications = async (userId: string): Promise<JobApplication[]> => {
-  const { data, error } = await supabase
-    .from('job_applications')
-    .select('*')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-  
-  if (error) {
-    console.error('Error fetching job applications:', error)
+  try {
+    const { data, error } = await supabase
+      .from('job_applications')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+    
+    if (error) {
+      console.error('Error fetching job applications:', error)
+      return []
+    }
+    
+    return data || []
+  } catch (error) {
+    console.error('Error in getUserJobApplications:', error)
     return []
   }
-  
-  return data || []
 }
 
 export const createJobApplication = async (application: Omit<JobApplication, 'id' | 'created_at' | 'updated_at'>): Promise<JobApplication | null> => {
-  const { data, error } = await supabase
-    .from('job_applications')
-    .insert(application)
-    .select()
-    .single()
-  
-  if (error) {
-    console.error('Error creating job application:', error)
+  try {
+    const { data, error } = await supabase
+      .from('job_applications')
+      .insert(application)
+      .select()
+      .single()
+    
+    if (error) {
+      console.error('Error creating job application:', error)
+      return null
+    }
+    
+    return data
+  } catch (error) {
+    console.error('Error in createJobApplication:', error)
     return null
   }
-  
-  return data
 }
 
 export const updateJobApplication = async (id: string, updates: Partial<JobApplication>): Promise<JobApplication | null> => {
-  const { data, error } = await supabase
-    .from('job_applications')
-    .update({ ...updates, updated_at: new Date().toISOString() })
-    .eq('id', id)
-    .select()
-    .single()
-  
-  if (error) {
-    console.error('Error updating job application:', error)
+  try {
+    const { data, error } = await supabase
+      .from('job_applications')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select()
+      .single()
+    
+    if (error) {
+      console.error('Error updating job application:', error)
+      return null
+    }
+    
+    return data
+  } catch (error) {
+    console.error('Error in updateJobApplication:', error)
     return null
   }
-  
-  return data
 }
 
 export const getMentors = async (): Promise<Mentor[]> => {
-  const { data, error } = await supabase
-    .from('mentors')
-    .select('*')
-    .eq('available', true)
-    .order('rating', { ascending: false })
-  
-  if (error) {
-    console.error('Error fetching mentors:', error)
+  try {
+    const { data, error } = await supabase
+      .from('mentors')
+      .select('*')
+      .eq('available', true)
+      .order('rating', { ascending: false })
+    
+    if (error) {
+      console.error('Error fetching mentors:', error)
+      return []
+    }
+    
+    return data || []
+  } catch (error) {
+    console.error('Error in getMentors:', error)
     return []
   }
-  
-  return data || []
 }
 
 export const getUserBookings = async (userId: string): Promise<Booking[]> => {
-  const { data, error } = await supabase
-    .from('bookings')
-    .select(`
-      *,
-      mentors (
-        name,
-        title,
-        company,
-        avatar_url
-      )
-    `)
-    .eq('user_id', userId)
-    .order('scheduled_at', { ascending: false })
-  
-  if (error) {
-    console.error('Error fetching bookings:', error)
+  try {
+    const { data, error } = await supabase
+      .from('bookings')
+      .select(`
+        *,
+        mentors (
+          name,
+          title,
+          company,
+          avatar_url
+        )
+      `)
+      .eq('user_id', userId)
+      .order('scheduled_at', { ascending: false })
+    
+    if (error) {
+      console.error('Error fetching bookings:', error)
+      return []
+    }
+    
+    return data || []
+  } catch (error) {
+    console.error('Error in getUserBookings:', error)
     return []
   }
-  
-  return data || []
 }
 
 export const createBooking = async (booking: Omit<Booking, 'id' | 'created_at'>): Promise<Booking | null> => {
-  const { data, error } = await supabase
-    .from('bookings')
-    .insert(booking)
-    .select()
-    .single()
-  
-  if (error) {
-    console.error('Error creating booking:', error)
+  try {
+    const { data, error } = await supabase
+      .from('bookings')
+      .insert(booking)
+      .select()
+      .single()
+    
+    if (error) {
+      console.error('Error creating booking:', error)
+      return null
+    }
+    
+    return data
+  } catch (error) {
+    console.error('Error in createBooking:', error)
     return null
   }
-  
-  return data
 }
