@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react"
+import React, { useState, useMemo, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -13,7 +13,8 @@ import {
   Clock,
   BookOpen,
   Award,
-  Loader2
+  Loader2,
+  Home
 } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import { useAuth } from "@/hooks/useAuth"
@@ -27,7 +28,7 @@ interface WeekProgram {
   current: boolean
 }
 
-export default function DashboardPage() {
+const DashboardPage = React.memo(() => {
   const navigate = useNavigate()
   const { user, userProfile } = useAuth()
   const { completedWeeks, overallProgress, isLoading, markWeekComplete } = useProgress()
@@ -132,37 +133,37 @@ export default function DashboardPage() {
     return 'Program finished'
   }, [currentWeek, totalWeeks, weeklyProgram])
 
-  // Simple event handlers
-  const handleMarkWeekComplete = (weekNumber: number) => {
+  // Optimized event handlers with useCallback
+  const handleMarkWeekComplete = useCallback((weekNumber: number) => {
     markWeekComplete(weekNumber)
-  }
+  }, [markWeekComplete])
 
-  const handleNavigateToJourney = () => {
+  const handleNavigateToJourney = useCallback(() => {
     navigate('/journey')
-  }
+  }, [navigate])
 
-  const handleNavigateToResumeReview = () => {
+  const handleNavigateToResumeReview = useCallback(() => {
     navigate('/resume-review')
-  }
+  }, [navigate])
 
-  const handleNavigateToMockInterviews = () => {
+  const handleNavigateToMockInterviews = useCallback(() => {
     navigate('/mock-interviews')
-  }
+  }, [navigate])
 
-  const handleOpenMentorCalendar = () => {
+  const handleOpenMentorCalendar = useCallback(() => {
     window.open('https://calendly.com/mentorque-edu/30min?month=2025-08', '_blank')
-  }
+  }, [])
 
-  const toggleShowAllWeeks = () => {
+  const toggleShowAllWeeks = useCallback(() => {
     setShowAllWeeks(prev => !prev)
-  }
+  }, [])
 
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-blue-600" />
-          <p className="text-gray-600">Loading your dashboard...</p>
+          <Loader2 className="h-12 w-12 animate-spin mx-auto mb-4 text-blue-600" />
+          <p className="text-gray-600 text-lg">Loading your dashboard...</p>
         </div>
       </div>
     )
@@ -173,10 +174,10 @@ export default function DashboardPage() {
       <div className="max-w-7xl mx-auto px-4">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
+          <h1 className="text-4xl font-bold text-gray-900 mb-2">
             Welcome back, {displayName}! 👋
           </h1>
-          <p className="text-gray-600">Track your progress through the 8-week interview acceleration program</p>
+          <p className="text-xl text-gray-600">Track your progress through the 8-week interview acceleration program</p>
         </div>
 
         <Tabs defaultValue="overview" className="space-y-6">
@@ -189,7 +190,7 @@ export default function DashboardPage() {
           {/* Overview Tab */}
           <TabsContent value="overview" className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <Card>
+              <Card className="hover:shadow-lg transition-shadow">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium">Program Progress</CardTitle>
                   <Target className="h-4 w-4 text-muted-foreground" />
@@ -202,7 +203,7 @@ export default function DashboardPage() {
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card className="hover:shadow-lg transition-shadow">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium">Completed Weeks</CardTitle>
                   <CheckCircle className="h-4 w-4 text-muted-foreground" />
@@ -215,7 +216,7 @@ export default function DashboardPage() {
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card className="hover:shadow-lg transition-shadow">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium">Current Focus</CardTitle>
                   <BookOpen className="h-4 w-4 text-muted-foreground" />
@@ -230,7 +231,7 @@ export default function DashboardPage() {
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card className="hover:shadow-lg transition-shadow">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium">Achievement</CardTitle>
                   <Award className="h-4 w-4 text-muted-foreground" />
@@ -243,7 +244,7 @@ export default function DashboardPage() {
             </div>
 
             {/* Progress Overview */}
-            <Card>
+            <Card className="hover:shadow-lg transition-shadow">
               <CardHeader>
                 <CardTitle>8-Week Program Overview</CardTitle>
                 <CardDescription>Your journey through our interview acceleration program</CardDescription>
@@ -263,7 +264,7 @@ export default function DashboardPage() {
                   {(showAllWeeks ? updatedWeeklyProgram : updatedWeeklyProgram.slice(0, 4)).map((week) => (
                     <div 
                       key={week.week} 
-                      className={`p-4 border rounded-lg transition-colors ${
+                      className={`p-4 border rounded-lg transition-all duration-200 hover:shadow-md ${
                         week.current ? 'border-blue-500 bg-blue-50' : 
                         week.completed ? 'border-green-500 bg-green-50' : 
                         'border-gray-200 hover:border-gray-300'
@@ -321,7 +322,7 @@ export default function DashboardPage() {
                   {updatedWeeklyProgram.map((week) => (
                     <div 
                       key={week.week} 
-                      className={`p-6 border rounded-lg ${
+                      className={`p-6 border rounded-lg transition-all duration-200 hover:shadow-md ${
                         week.current ? 'border-blue-500 bg-blue-50' : 
                         week.completed ? 'border-green-500 bg-green-50' : 
                         'border-gray-200'
@@ -388,7 +389,7 @@ export default function DashboardPage() {
           {/* Resources Tab */}
           <TabsContent value="resources" className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              <Card className="cursor-pointer hover:shadow-lg transition-shadow" onClick={handleNavigateToResumeReview}>
+              <Card className="cursor-pointer hover:shadow-lg transition-all duration-200" onClick={handleNavigateToResumeReview}>
                 <CardHeader>
                   <CardTitle className="flex items-center space-x-2">
                     <Target className="h-5 w-5 text-blue-600" />
@@ -403,7 +404,7 @@ export default function DashboardPage() {
                 </CardContent>
               </Card>
 
-              <Card className="cursor-pointer hover:shadow-lg transition-shadow" onClick={handleNavigateToMockInterviews}>
+              <Card className="cursor-pointer hover:shadow-lg transition-all duration-200" onClick={handleNavigateToMockInterviews}>
                 <CardHeader>
                   <CardTitle className="flex items-center space-x-2">
                     <Users className="h-5 w-5 text-green-600" />
@@ -418,7 +419,7 @@ export default function DashboardPage() {
                 </CardContent>
               </Card>
 
-              <Card className="cursor-pointer hover:shadow-lg transition-shadow">
+              <Card className="cursor-pointer hover:shadow-lg transition-all duration-200">
                 <CardHeader>
                   <CardTitle className="flex items-center space-x-2">
                     <Calendar className="h-5 w-5 text-purple-600" />
@@ -442,4 +443,8 @@ export default function DashboardPage() {
       </div>
     </div>
   )
-}
+})
+
+DashboardPage.displayName = 'DashboardPage'
+
+export default DashboardPage

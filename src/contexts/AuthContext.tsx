@@ -1,16 +1,19 @@
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback, useRef } from 'react'
 import { User, Session } from '@supabase/supabase-js'
 import { supabase, UserProfile } from '../lib/supabase'
 import { AuthContext } from '../lib/auth-context'
-import { toast } from 'sonner'
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null)
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  
+  // Use refs to prevent stale closures and unnecessary re-renders
+  const mountedRef = useRef(true)
+  const initializingRef = useRef(false)
 
-  const signOut = async () => {
+  const signOut = useCallback(async () => {
     // Clear all local state first
     setUser(null)
     setUserProfile(null)
@@ -21,9 +24,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (error) {
       console.error('Error during signOut:', error)
     }
-  }
+  }, [])
 
   const fetchUserProfile = useCallback(async (userId: string) => {
+    if (!userId || !mountedRef.current) return
+    
     try {
       const { data, error } = await supabase
         .from('user_profiles')
@@ -36,14 +41,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return
       }
 
-      setUserProfile(data)
+      if (mountedRef.current) {
+        setUserProfile(data)
+      }
     } catch (error) {
       console.error('Error fetching user profile:', error)
     }
   }, [])
 
   useEffect(() => {
-    let mounted = true
+    mountedRef.current = true
+    
+    // Prevent double initialization
+    if (initializingRef.current) return
+    initializingRef.current = true
 
     // Get initial session
     const getInitialSession = async () => {
@@ -52,11 +63,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         
         if (error) {
           console.error('Error getting initial session:', error)
-          if (mounted) setIsLoading(false)
+          if (mountedRef.current) setIsLoading(false)
           return
         }
         
-        if (mounted) {
+        if (mountedRef.current) {
           setSession(session)
           setUser(session?.user ?? null)
           
@@ -68,7 +79,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       } catch (error) {
         console.error('Error in getInitialSession:', error)
-        if (mounted) setIsLoading(false)
+        if (mountedRef.current) setIsLoading(false)
       }
     }
 
@@ -77,7 +88,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        if (!mounted) return
+        if (!mountedRef.current) return
 
         console.log('Auth state change:', event, session?.user?.id)
         
@@ -95,12 +106,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     )
 
     return () => {
-      mounted = false
+      mountedRef.current = false
       subscription.unsubscribe()
     }
   }, [fetchUserProfile])
 
-  const signUp = async (email: string, password: string, fullName: string) => {
+  const signUp = useCallback(async (email: string, password: string, fullName: string) => {
     try {
       setIsLoading(true)
       
@@ -146,9 +157,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsLoading(false)
       return { error }
     }
-  }
+  }, [])
 
-  const signIn = async (email: string, password: string) => {
+  const signIn = useCallback(async (email: string, password: string) => {
     try {
       setIsLoading(true)
       
@@ -168,9 +179,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsLoading(false)
       return { error }
     }
-  }
+  }, [])
 
-  const resetPassword = async (email: string) => {
+  const resetPassword = useCallback(async (email: string) => {
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: `${window.location.origin}/reset-password`
@@ -180,7 +191,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (error) {
       return { error }
     }
-  }
+  }, [])
 
   const value = {
     user,

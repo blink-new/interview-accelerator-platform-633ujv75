@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://xzhzyevxktpnzriysvmg.supabase.co'
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh6aHp5ZXZ4a3RwbnpyaXlzdm1nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM1MjE2MjgsImV4cCI6MjA2OTA5NzYyOH0.KTGSzRqAjErbGslxjLinsqnWLNlEJ8_4ZTiD0mZSf7M'
 
+// Create optimized Supabase client with proper configuration
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     autoRefreshToken: true,
@@ -20,7 +21,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
   realtime: {
     params: {
-      eventsPerSecond: 5
+      eventsPerSecond: 2 // Reduced for better performance
     }
   }
 })
@@ -85,8 +86,29 @@ export interface Booking {
   created_at: string
 }
 
-// Optimized helper functions with error handling
+// Optimized helper functions with proper error handling and caching
+const cache = new Map<string, { data: any; timestamp: number }>()
+const CACHE_DURATION = 30000 // 30 seconds
+
+const getCachedData = (key: string) => {
+  const cached = cache.get(key)
+  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+    return cached.data
+  }
+  return null
+}
+
+const setCachedData = (key: string, data: any) => {
+  cache.set(key, { data, timestamp: Date.now() })
+}
+
 export const getCompletedWeeks = async (userId: string): Promise<number[]> => {
+  if (!userId) return []
+  
+  const cacheKey = `completed_weeks_${userId}`
+  const cached = getCachedData(cacheKey)
+  if (cached) return cached
+  
   try {
     const { data, error } = await supabase
       .from('week_completions')
@@ -99,7 +121,9 @@ export const getCompletedWeeks = async (userId: string): Promise<number[]> => {
       return []
     }
     
-    return data ? data.map(w => w.week_number) : []
+    const result = data ? data.map(w => w.week_number) : []
+    setCachedData(cacheKey, result)
+    return result
   } catch (error) {
     console.error('Error in getCompletedWeeks:', error)
     return []
@@ -107,6 +131,8 @@ export const getCompletedWeeks = async (userId: string): Promise<number[]> => {
 }
 
 export const markWeekComplete = async (weekNumber: number, userId: string): Promise<void> => {
+  if (!userId || !weekNumber) return
+  
   try {
     const { error } = await supabase
       .from('week_completions')
@@ -121,6 +147,9 @@ export const markWeekComplete = async (weekNumber: number, userId: string): Prom
       console.error('Error marking week complete:', error)
       throw error
     }
+    
+    // Clear cache for this user
+    cache.delete(`completed_weeks_${userId}`)
   } catch (error) {
     console.error('Error in markWeekComplete:', error)
     throw error
@@ -128,6 +157,12 @@ export const markWeekComplete = async (weekNumber: number, userId: string): Prom
 }
 
 export const getUserJobApplications = async (userId: string): Promise<JobApplication[]> => {
+  if (!userId) return []
+  
+  const cacheKey = `job_applications_${userId}`
+  const cached = getCachedData(cacheKey)
+  if (cached) return cached
+  
   try {
     const { data, error } = await supabase
       .from('job_applications')
@@ -140,7 +175,9 @@ export const getUserJobApplications = async (userId: string): Promise<JobApplica
       return []
     }
     
-    return data || []
+    const result = data || []
+    setCachedData(cacheKey, result)
+    return result
   } catch (error) {
     console.error('Error in getUserJobApplications:', error)
     return []
@@ -148,6 +185,8 @@ export const getUserJobApplications = async (userId: string): Promise<JobApplica
 }
 
 export const createJobApplication = async (application: Omit<JobApplication, 'id' | 'created_at' | 'updated_at'>): Promise<JobApplication | null> => {
+  if (!application.user_id) return null
+  
   try {
     const { data, error } = await supabase
       .from('job_applications')
@@ -160,6 +199,8 @@ export const createJobApplication = async (application: Omit<JobApplication, 'id
       return null
     }
     
+    // Clear cache for this user
+    cache.delete(`job_applications_${application.user_id}`)
     return data
   } catch (error) {
     console.error('Error in createJobApplication:', error)
@@ -168,6 +209,8 @@ export const createJobApplication = async (application: Omit<JobApplication, 'id
 }
 
 export const updateJobApplication = async (id: string, updates: Partial<JobApplication>): Promise<JobApplication | null> => {
+  if (!id) return null
+  
   try {
     const { data, error } = await supabase
       .from('job_applications')
@@ -181,6 +224,10 @@ export const updateJobApplication = async (id: string, updates: Partial<JobAppli
       return null
     }
     
+    // Clear cache for this user if we have user_id
+    if (data?.user_id) {
+      cache.delete(`job_applications_${data.user_id}`)
+    }
     return data
   } catch (error) {
     console.error('Error in updateJobApplication:', error)
@@ -189,6 +236,10 @@ export const updateJobApplication = async (id: string, updates: Partial<JobAppli
 }
 
 export const getMentors = async (): Promise<Mentor[]> => {
+  const cacheKey = 'mentors_available'
+  const cached = getCachedData(cacheKey)
+  if (cached) return cached
+  
   try {
     const { data, error } = await supabase
       .from('mentors')
@@ -201,7 +252,9 @@ export const getMentors = async (): Promise<Mentor[]> => {
       return []
     }
     
-    return data || []
+    const result = data || []
+    setCachedData(cacheKey, result)
+    return result
   } catch (error) {
     console.error('Error in getMentors:', error)
     return []
@@ -209,6 +262,12 @@ export const getMentors = async (): Promise<Mentor[]> => {
 }
 
 export const getUserBookings = async (userId: string): Promise<Booking[]> => {
+  if (!userId) return []
+  
+  const cacheKey = `bookings_${userId}`
+  const cached = getCachedData(cacheKey)
+  if (cached) return cached
+  
   try {
     const { data, error } = await supabase
       .from('bookings')
@@ -229,7 +288,9 @@ export const getUserBookings = async (userId: string): Promise<Booking[]> => {
       return []
     }
     
-    return data || []
+    const result = data || []
+    setCachedData(cacheKey, result)
+    return result
   } catch (error) {
     console.error('Error in getUserBookings:', error)
     return []
@@ -237,6 +298,8 @@ export const getUserBookings = async (userId: string): Promise<Booking[]> => {
 }
 
 export const createBooking = async (booking: Omit<Booking, 'id' | 'created_at'>): Promise<Booking | null> => {
+  if (!booking.user_id) return null
+  
   try {
     const { data, error } = await supabase
       .from('bookings')
@@ -249,6 +312,8 @@ export const createBooking = async (booking: Omit<Booking, 'id' | 'created_at'>)
       return null
     }
     
+    // Clear cache for this user
+    cache.delete(`bookings_${booking.user_id}`)
     return data
   } catch (error) {
     console.error('Error in createBooking:', error)

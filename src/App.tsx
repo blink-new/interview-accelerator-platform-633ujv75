@@ -3,8 +3,8 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { Toaster } from 'sonner'
 import { AuthProvider } from './contexts/AuthContext'
 import { useAuth } from './hooks/useAuth'
-import { useEmergencySystem } from './hooks/useEmergencySystem'
-import EmergencyErrorBoundary from './components/EmergencyErrorBoundary'
+
+import ErrorBoundary from './components/ErrorBoundary'
 import HomePage from './pages/HomePage'
 import JourneyPage from './pages/JourneyPage'
 import MentorsPage from './pages/MentorsPage'
@@ -23,8 +23,6 @@ import CompetencyInterviewPage from './pages/CompetencyInterviewPage'
 import TechnicalInterviewPage from './pages/TechnicalInterviewPage'
 import BehavioralInterviewPage from './pages/BehavioralInterviewPage'
 import JobTrackerPage from './pages/JobTrackerPage'
-
-
 import SignInPage from './pages/SignInPage'
 import Navbar from './components/layout/Navbar'
 
@@ -33,10 +31,10 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600 text-lg">Loading...</p>
         </div>
       </div>
     )
@@ -51,9 +49,6 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 function AppContent() {
   const { user } = useAuth()
-  
-  // Initialize emergency system
-  useEmergencySystem()
   
   return (
     <div className="min-h-screen bg-background">
@@ -157,20 +152,30 @@ function AppContent() {
         } />
         <Route path="*" element={<Navigate to={user ? "/dashboard" : "/signin"} replace />} />
       </Routes>
-      <Toaster position="top-right" />
+      <Toaster 
+        position="top-right" 
+        toastOptions={{
+          duration: 4000,
+          style: {
+            background: 'white',
+            color: 'black',
+            border: '1px solid #e5e7eb'
+          }
+        }}
+      />
     </div>
   )
 }
 
 function App() {
   return (
-    <EmergencyErrorBoundary>
+    <ErrorBoundary>
       <Router>
         <AuthProvider>
           <AppContent />
         </AuthProvider>
       </Router>
-    </EmergencyErrorBoundary>
+    </ErrorBoundary>
   )
 }
 

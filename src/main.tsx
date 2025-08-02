@@ -3,12 +3,11 @@ import ReactDOM from 'react-dom/client'
 import App from './App'
 import './index.css'
 
-// Initialize emergency system early
-import EmergencySystem from './utils/emergencySystem'
-EmergencySystem.getInstance().initialize()
+// Clean, simple entry point with no double initialization
+const root = ReactDOM.createRoot(document.getElementById('root')!)
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
+root.render(
   <React.StrictMode>
     <App />
-  </React.StrictMode>,
-) 
+  </React.StrictMode>
+)

@@ -1,121 +1,74 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from './useAuth'
-import { supabase } from '@/lib/supabase'
-import { toast } from 'sonner'
-
-interface ProgressData {
-  completedWeeks: number[]
-  overallProgress: number
-  isLoading: boolean
-}
+import { getCompletedWeeks, markWeekComplete as markWeekCompleteDB } from '../lib/supabase'
 
 export const useProgress = () => {
   const { user } = useAuth()
-  const [progressData, setProgressData] = useState<ProgressData>({
-    completedWeeks: [],
-    overallProgress: 0,
-    isLoading: true
-  })
-  
-  // Simple refs to prevent memory leaks
+  const [completedWeeks, setCompletedWeeks] = useState<number[]>([])
+  const [isLoading, setIsLoading] = useState(true)
   const mountedRef = useRef(true)
-  const loadingRef = useRef(false)
 
-  // Simple database call without circuit breaker complexity
-  const loadProgress = useCallback(async () => {
-    const currentUserId = user?.id
-    if (!currentUserId || loadingRef.current || !mountedRef.current) {
-      if (!currentUserId && mountedRef.current) {
-        setProgressData({
-          completedWeeks: [],
-          overallProgress: 0,
-          isLoading: false
-        })
-      }
-      return
-    }
+  // Calculate overall progress
+  const overallProgress = (completedWeeks.length / 8) * 100
 
-    loadingRef.current = true
-
+  const fetchCompletedWeeks = useCallback(async () => {
+    if (!user?.id || !mountedRef.current) return
+    
     try {
-      const { data: completions, error } = await supabase
-        .from('week_completions')
-        .select('week_number')
-        .eq('user_id', currentUserId)
-        .eq('completed', true)
-
-      if (error) throw error
-
-      const completed = (completions || []).map(c => c.week_number).sort((a, b) => a - b)
-      const progress = (completed.length / 8) * 100
-
-      if (mountedRef.current) {
-        setProgressData({
-          completedWeeks: completed,
-          overallProgress: progress,
-          isLoading: false
-        })
-      }
-    } catch (error) {
-      console.error('Error loading progress:', error)
+      setIsLoading(true)
+      const weeks = await getCompletedWeeks(user.id)
       
       if (mountedRef.current) {
-        setProgressData({
-          completedWeeks: [],
-          overallProgress: 0,
-          isLoading: false
-        })
-        toast.error('Failed to load progress data')
+        setCompletedWeeks(weeks)
       }
+    } catch (error) {
+      console.error('Error fetching completed weeks:', error)
     } finally {
-      loadingRef.current = false
+      if (mountedRef.current) {
+        setIsLoading(false)
+      }
     }
   }, [user?.id])
 
   const markWeekComplete = useCallback(async (weekNumber: number) => {
-    const currentUserId = user?.id
-    if (!currentUserId) return false
-
+    if (!user?.id || !mountedRef.current) return
+    
     try {
-      const { error } = await supabase
-        .from('week_completions')
-        .upsert({
-          user_id: currentUserId,
-          week_number: weekNumber,
-          completed: true,
-          completed_at: new Date().toISOString()
+      await markWeekCompleteDB(weekNumber, user.id)
+      
+      if (mountedRef.current) {
+        setCompletedWeeks(prev => {
+          if (!prev.includes(weekNumber)) {
+            return [...prev, weekNumber].sort((a, b) => a - b)
+          }
+          return prev
         })
-
-      if (error) throw error
-
-      // Reload progress after marking complete
-      await loadProgress()
-      toast.success(`Week ${weekNumber} marked as complete!`)
-      return true
+      }
     } catch (error) {
       console.error('Error marking week complete:', error)
-      toast.error('Failed to update progress')
-      return false
     }
-  }, [user, loadProgress])
+  }, [user?.id])
 
-  // Initial load when user changes
   useEffect(() => {
-    if (user?.id && mountedRef.current) {
-      loadProgress()
+    mountedRef.current = true
+    
+    if (user?.id) {
+      fetchCompletedWeeks()
+    } else {
+      setCompletedWeeks([])
+      setIsLoading(false)
     }
-  }, [user?.id, loadProgress])
 
-  // Cleanup on unmount
-  useEffect(() => {
     return () => {
       mountedRef.current = false
     }
-  }, [])
+  }, [user?.id, fetchCompletedWeeks])
 
   return {
-    ...progressData,
+    completedWeeks,
+    overallProgress,
+    isLoading,
     markWeekComplete,
-    refreshProgress: loadProgress
+    refetch: fetchCompletedWeeks
   }
 }

@@ -1,31 +1,6 @@
 import { useCallback, useRef, useEffect } from 'react'
 
-// Simplified performance monitoring without heavy operations
-export const useSlowOperationDetector = () => {
-  const detectSlowOperation = useCallback((operation: () => Promise<any>, name: string, threshold = 2000) => {
-    return async (...args: any[]) => {
-      const start = performance.now()
-      try {
-        const result = await operation(...args)
-        const duration = performance.now() - start
-        
-        if (duration > threshold) {
-          console.warn(`Slow operation: ${name} took ${duration.toFixed(2)}ms`)
-        }
-        
-        return result
-      } catch (error) {
-        const duration = performance.now() - start
-        console.error(`Operation failed: ${name} took ${duration.toFixed(2)}ms`, error)
-        throw error
-      }
-    }
-  }, [])
-
-  return { detectSlowOperation }
-}
-
-// Simple debounce hook with proper ref handling
+// Simple debounce hook with proper cleanup
 export const useDebounce = <T extends (...args: any[]) => any>(
   callback: T,
   delay: number
@@ -50,4 +25,38 @@ export const useDebounce = <T extends (...args: any[]) => any>(
   }, [])
 
   return debouncedCallback
+}
+
+// Simple throttle hook
+export const useThrottle = <T extends (...args: any[]) => any>(
+  callback: T,
+  delay: number
+): T => {
+  const lastRun = useRef(Date.now())
+
+  const throttledCallback = useCallback((...args: Parameters<T>) => {
+    if (Date.now() - lastRun.current >= delay) {
+      callback(...args)
+      lastRun.current = Date.now()
+    }
+  }, [callback, delay]) as T
+
+  return throttledCallback
+}
+
+// Simple performance wrapper without aggressive monitoring
+export const usePerformanceWrapper = () => {
+  const wrapAsyncOperation = useCallback((operation: () => Promise<any>, name: string) => {
+    return async (...args: any[]) => {
+      try {
+        const result = await operation(...args)
+        return result
+      } catch (error) {
+        console.error(`Operation failed: ${name}`, error)
+        throw error
+      }
+    }
+  }, [])
+
+  return { wrapAsyncOperation }
 }

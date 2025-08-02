@@ -6,7 +6,7 @@ import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Trophy, Users, Target, TrendingUp, Loader2, RefreshCw, Award, Briefcase } from "lucide-react"
 import { useAuth } from "@/hooks/useAuth"
-import { useCircuitBreaker } from "@/hooks/useEmergencySystem"
+
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 
@@ -31,7 +31,6 @@ interface ProgressEntry {
 
 export default function Leaderboard() {
   const { user } = useAuth()
-  const { wrapApiCall } = useCircuitBreaker()
   const [jobLeaderboard, setJobLeaderboard] = useState<LeaderboardEntry[]>([])
   const [progressLeaderboard, setProgressLeaderboard] = useState<ProgressEntry[]>([])
   const [loading, setLoading] = useState(true)
@@ -43,28 +42,15 @@ export default function Leaderboard() {
   const mountedRef = useRef(true)
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
-  // Create circuit breaker protected database calls
+  // Direct database calls
   const protectedFetchJobLeaderboard = useCallback(async () => {
-    const dbCall = async () => {
-      const { data, error } = await supabase
-        .from('job_applications_leaderboard')
-        .select('*')
+    const { data, error } = await supabase
+      .from('job_applications_leaderboard')
+      .select('*')
 
-      if (error) throw error
-      return data || []
-    }
-
-    if (wrapApiCall) {
-      const wrappedCall = wrapApiCall(dbCall, { 
-        name: 'fetchJobLeaderboard', 
-        threshold: 3, 
-        timeout: 15000 
-      })
-      return wrappedCall()
-    }
-    
-    return dbCall()
-  }, [wrapApiCall])
+    if (error) throw error
+    return data || []
+  }, [])
 
   const fetchJobLeaderboard = useCallback(async () => {
     if (loadingRef.current || !mountedRef.current) return
@@ -83,65 +69,52 @@ export default function Leaderboard() {
   }, [protectedFetchJobLeaderboard])
 
   const protectedFetchProgressLeaderboard = useCallback(async () => {
-    const dbCall = async () => {
-      // Get all users with their progress
-      const { data: usersData, error: usersError } = await supabase
-        .from('user_profiles')
-        .select('id, full_name, email')
-        .neq('role', 'deactivated')
-        .order('created_at', { ascending: false })
-        .limit(50) // Limit to prevent excessive data loading
+    // Get all users with their progress
+    const { data: usersData, error: usersError } = await supabase
+      .from('user_profiles')
+      .select('id, full_name, email')
+      .neq('role', 'deactivated')
+      .order('created_at', { ascending: false })
+      .limit(50) // Limit to prevent excessive data loading
 
-      if (usersError) throw usersError
+    if (usersError) throw usersError
 
-      // Get all completion data
-      const { data: completionsData, error: completionsError } = await supabase
-        .from('week_completions')
-        .select('user_id, week_number, completed')
-        .eq('completed', true)
+    // Get all completion data
+    const { data: completionsData, error: completionsError } = await supabase
+      .from('week_completions')
+      .select('user_id, week_number, completed')
+      .eq('completed', true)
 
-      if (completionsError) {
-        console.error('Error fetching completions:', completionsError)
-      }
-
-      // Create a map of user completions
-      const completionsMap = new Map<string, number>()
-      if (completionsData) {
-        completionsData.forEach(completion => {
-          const current = completionsMap.get(completion.user_id) || 0
-          completionsMap.set(completion.user_id, current + 1)
-        })
-      }
-
-      // Combine user data with completion data
-      const progressData = (usersData || []).map(user => {
-        const completedWeeks = completionsMap.get(user.id) || 0
-        const journeyCompletion = Math.round((completedWeeks / 8) * 100)
-
-        return {
-          user_id: user.id,
-          user_email: user.email || 'Anonymous',
-          full_name: user.full_name || 'Anonymous',
-          completed_weeks: completedWeeks,
-          journey_completion: journeyCompletion,
-          is_active: true
-        }
-      }).sort((a, b) => b.journey_completion - a.journey_completion || b.completed_weeks - a.completed_weeks)
-
-      return progressData
+    if (completionsError) {
+      console.error('Error fetching completions:', completionsError)
     }
 
-    if (wrapApiCall) {
-      const wrappedCall = wrapApiCall(dbCall, { 
-        name: 'fetchProgressLeaderboard', 
-        threshold: 3, 
-        timeout: 20000 
+    // Create a map of user completions
+    const completionsMap = new Map<string, number>()
+    if (completionsData) {
+      completionsData.forEach(completion => {
+        const current = completionsMap.get(completion.user_id) || 0
+        completionsMap.set(completion.user_id, current + 1)
       })
-      return wrappedCall()
     }
-    
-    return dbCall()
-  }, [wrapApiCall])
+
+    // Combine user data with completion data
+    const progressData = (usersData || []).map(user => {
+      const completedWeeks = completionsMap.get(user.id) || 0
+      const journeyCompletion = Math.round((completedWeeks / 8) * 100)
+
+      return {
+        user_id: user.id,
+        user_email: user.email || 'Anonymous',
+        full_name: user.full_name || 'Anonymous',
+        completed_weeks: completedWeeks,
+        journey_completion: journeyCompletion,
+        is_active: true
+      }
+    }).sort((a, b) => b.journey_completion - a.journey_completion || b.completed_weeks - a.completed_weeks)
+
+    return progressData
+  }, [])
 
   const fetchProgressLeaderboard = useCallback(async () => {
     if (loadingRef.current || !mountedRef.current) return
