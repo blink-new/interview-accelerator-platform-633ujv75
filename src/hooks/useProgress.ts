@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from './useAuth'
+import { useCircuitBreaker } from './useEmergencySystem'
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
 
@@ -11,6 +12,7 @@ interface ProgressData {
 
 export const useProgress = () => {
   const { user } = useAuth()
+  const { wrapApiCall } = useCircuitBreaker()
   const [progressData, setProgressData] = useState<ProgressData>({
     completedWeeks: [],
     overallProgress: 0,
@@ -21,6 +23,32 @@ export const useProgress = () => {
   const loadingRef = useRef(false)
   const subscriptionRef = useRef<any>(null)
   const userIdRef = useRef<string | null>(null)
+  const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Create circuit breaker protected database call
+  const protectedLoadProgress = useCallback(async (userId: string) => {
+    const dbCall = async () => {
+      const { data: completions, error } = await supabase
+        .from('week_completions')
+        .select('week_number')
+        .eq('user_id', userId)
+        .eq('completed', true)
+
+      if (error) throw error
+      return completions || []
+    }
+
+    if (wrapApiCall) {
+      const wrappedCall = wrapApiCall(dbCall, { 
+        name: 'loadProgress', 
+        threshold: 3, 
+        timeout: 30000 
+      })
+      return wrappedCall()
+    }
+    
+    return dbCall()
+  }, [wrapApiCall])
 
   const loadProgress = useCallback(async () => {
     const currentUserId = user?.id
@@ -38,18 +66,8 @@ export const useProgress = () => {
     loadingRef.current = true
 
     try {
-      const { data: completions, error } = await supabase
-        .from('week_completions')
-        .select('week_number')
-        .eq('user_id', currentUserId)
-        .eq('completed', true)
-
-      if (error) {
-        console.error('Error loading progress:', error)
-        return
-      }
-
-      const completed = completions ? completions.map(c => c.week_number) : []
+      const completions = await protectedLoadProgress(currentUserId)
+      const completed = completions.map(c => c.week_number)
       const progress = (completed.length / 8) * 100
 
       setProgressData({
@@ -67,7 +85,7 @@ export const useProgress = () => {
     } finally {
       loadingRef.current = false
     }
-  }, [user])
+  }, [user, protectedLoadProgress])
 
   const markWeekComplete = useCallback(async (weekNumber: number) => {
     const currentUserId = user?.id
@@ -126,12 +144,17 @@ export const useProgress = () => {
             filter: `user_id=eq.${currentUserId}`
           },
           () => {
+            // Clear existing debounce timeout
+            if (debounceTimeoutRef.current) {
+              clearTimeout(debounceTimeoutRef.current)
+            }
+            
             // Debounce the reload to prevent excessive calls
-            setTimeout(() => {
-              if (!loadingRef.current) {
+            debounceTimeoutRef.current = setTimeout(() => {
+              if (!loadingRef.current && userIdRef.current === currentUserId) {
                 loadProgress()
               }
-            }, 500)
+            }, 1000) // Increased debounce time
           }
         )
         .subscribe()
@@ -141,6 +164,10 @@ export const useProgress = () => {
       if (subscriptionRef.current) {
         subscriptionRef.current.unsubscribe()
         subscriptionRef.current = null
+      }
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current)
+        debounceTimeoutRef.current = null
       }
       userIdRef.current = null
     }

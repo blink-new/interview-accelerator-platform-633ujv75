@@ -3,7 +3,8 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { Toaster } from 'sonner'
 import { AuthProvider } from './contexts/AuthContext'
 import { useAuth } from './hooks/useAuth'
-import ErrorBoundary from './components/ErrorBoundary'
+import { useEmergencySystem } from './hooks/useEmergencySystem'
+import EmergencyErrorBoundary from './components/EmergencyErrorBoundary'
 import HomePage from './pages/HomePage'
 import JourneyPage from './pages/JourneyPage'
 import MentorsPage from './pages/MentorsPage'
@@ -50,6 +51,9 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 function AppContent() {
   const { user } = useAuth()
+  
+  // Initialize emergency system
+  useEmergencySystem()
   
   return (
     <div className="min-h-screen bg-background">
@@ -165,13 +169,13 @@ function AppContent() {
 
 function App() {
   return (
-    <ErrorBoundary>
+    <EmergencyErrorBoundary>
       <Router>
         <AuthProvider>
           <AppContent />
         </AuthProvider>
       </Router>
-    </ErrorBoundary>
+    </EmergencyErrorBoundary>
   )
 }
 

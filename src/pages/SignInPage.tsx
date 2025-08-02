@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -17,8 +17,36 @@ export default function SignInPage() {
   const [success, setSuccess] = useState('')
   const [isSigningIn, setIsSigningIn] = useState(false)
   const [isSigningUp, setIsSigningUp] = useState(false)
+  const [recoveryMessage, setRecoveryMessage] = useState('')
   const { signIn, signUp } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+
+  // Handle emergency recovery reasons
+  useEffect(() => {
+    const reason = searchParams.get('reason')
+    if (reason) {
+      const messages = {
+        freeze_recovery: '🧊 System freeze detected. You have been safely logged out for recovery.',
+        memory_cleanup: '🧹 High memory usage detected. Session cleared for optimal performance.',
+        inactivity: '⏰ You were automatically logged out due to inactivity.',
+        emergency_restart: '🚨 Emergency restart completed. Please sign in again.',
+        multiple_errors: '❌ Multiple errors detected. System has been reset for stability.',
+        circuit_breaker: '🔌 Too many failed requests. Please try again after a moment.',
+        error_recovery: '🔧 Recovered from application error. Please sign in to continue.',
+        emergency_reset: '🚨 Emergency reset completed. All cached data has been cleared.'
+      }
+      
+      const message = messages[reason as keyof typeof messages]
+      if (message) {
+        setRecoveryMessage(message)
+        // Clear the URL parameter
+        const newUrl = new URL(window.location.href)
+        newUrl.searchParams.delete('reason')
+        window.history.replaceState({}, '', newUrl.toString())
+      }
+    }
+  }, [searchParams])
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -126,6 +154,14 @@ export default function SignInPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
+            {recoveryMessage && (
+              <Alert className="mb-4 border-orange-200 bg-orange-50">
+                <AlertDescription className="text-orange-800">
+                  {recoveryMessage}
+                </AlertDescription>
+              </Alert>
+            )}
+            
             <Tabs defaultValue="signin" className="w-full">
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="signin">Sign In</TabsTrigger>

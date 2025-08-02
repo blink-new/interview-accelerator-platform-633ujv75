@@ -6,6 +6,7 @@ import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Trophy, Users, Target, TrendingUp, Loader2, RefreshCw, Award, Briefcase } from "lucide-react"
 import { useAuth } from "@/hooks/useAuth"
+import { useCircuitBreaker } from "@/hooks/useEmergencySystem"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 
@@ -30,6 +31,7 @@ interface ProgressEntry {
 
 export default function Leaderboard() {
   const { user } = useAuth()
+  const { wrapApiCall } = useCircuitBreaker()
   const [jobLeaderboard, setJobLeaderboard] = useState<LeaderboardEntry[]>([])
   const [progressLeaderboard, setProgressLeaderboard] = useState<ProgressEntry[]>([])
   const [loading, setLoading] = useState(true)
@@ -39,18 +41,38 @@ export default function Leaderboard() {
   const subscriptionsRef = useRef<any[]>([])
   const loadingRef = useRef(false)
   const mountedRef = useRef(true)
+  const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
-  const fetchJobLeaderboard = useCallback(async () => {
-    if (loadingRef.current || !mountedRef.current) return
-    
-    try {
+  // Create circuit breaker protected database calls
+  const protectedFetchJobLeaderboard = useCallback(async () => {
+    const dbCall = async () => {
       const { data, error } = await supabase
         .from('job_applications_leaderboard')
         .select('*')
 
       if (error) throw error
+      return data || []
+    }
+
+    if (wrapApiCall) {
+      const wrappedCall = wrapApiCall(dbCall, { 
+        name: 'fetchJobLeaderboard', 
+        threshold: 3, 
+        timeout: 15000 
+      })
+      return wrappedCall()
+    }
+    
+    return dbCall()
+  }, [wrapApiCall])
+
+  const fetchJobLeaderboard = useCallback(async () => {
+    if (loadingRef.current || !mountedRef.current) return
+    
+    try {
+      const data = await protectedFetchJobLeaderboard()
       if (mountedRef.current) {
-        setJobLeaderboard(data || [])
+        setJobLeaderboard(data)
       }
     } catch (error) {
       console.error('Error fetching job leaderboard:', error)
@@ -58,12 +80,10 @@ export default function Leaderboard() {
         toast.error('Failed to load job leaderboard')
       }
     }
-  }, [])
+  }, [protectedFetchJobLeaderboard])
 
-  const fetchProgressLeaderboard = useCallback(async () => {
-    if (loadingRef.current || !mountedRef.current) return
-    
-    try {
+  const protectedFetchProgressLeaderboard = useCallback(async () => {
+    const dbCall = async () => {
       // Get all users with their progress
       const { data: usersData, error: usersError } = await supabase
         .from('user_profiles')
@@ -108,6 +128,26 @@ export default function Leaderboard() {
         }
       }).sort((a, b) => b.journey_completion - a.journey_completion || b.completed_weeks - a.completed_weeks)
 
+      return progressData
+    }
+
+    if (wrapApiCall) {
+      const wrappedCall = wrapApiCall(dbCall, { 
+        name: 'fetchProgressLeaderboard', 
+        threshold: 3, 
+        timeout: 20000 
+      })
+      return wrappedCall()
+    }
+    
+    return dbCall()
+  }, [wrapApiCall])
+
+  const fetchProgressLeaderboard = useCallback(async () => {
+    if (loadingRef.current || !mountedRef.current) return
+    
+    try {
+      const progressData = await protectedFetchProgressLeaderboard()
       if (mountedRef.current) {
         setProgressLeaderboard(progressData)
       }
@@ -117,7 +157,7 @@ export default function Leaderboard() {
         toast.error('Failed to load progress leaderboard')
       }
     }
-  }, [])
+  }, [protectedFetchProgressLeaderboard])
 
   const handleRefresh = async () => {
     if (refreshing || loadingRef.current) return
@@ -178,12 +218,17 @@ export default function Leaderboard() {
           table: 'job_applications'
         },
         () => {
-          // Debounce updates
-          setTimeout(() => {
+          // Clear existing debounce timeout
+          if (debounceTimeoutRef.current) {
+            clearTimeout(debounceTimeoutRef.current)
+          }
+          
+          // Debounce updates to prevent excessive calls
+          debounceTimeoutRef.current = setTimeout(() => {
             if (!loadingRef.current && mountedRef.current) {
               fetchJobLeaderboard()
             }
-          }, 2000)
+          }, 3000) // Increased debounce time
         }
       )
       .subscribe()
@@ -198,12 +243,17 @@ export default function Leaderboard() {
           table: 'week_completions'
         },
         () => {
-          // Debounce updates
-          setTimeout(() => {
+          // Clear existing debounce timeout
+          if (debounceTimeoutRef.current) {
+            clearTimeout(debounceTimeoutRef.current)
+          }
+          
+          // Debounce updates to prevent excessive calls
+          debounceTimeoutRef.current = setTimeout(() => {
             if (!loadingRef.current && mountedRef.current) {
               fetchProgressLeaderboard()
             }
-          }, 2000)
+          }, 3000) // Increased debounce time
         }
       )
       .subscribe()
@@ -213,6 +263,10 @@ export default function Leaderboard() {
     return () => {
       subscriptionsRef.current.forEach(sub => sub?.unsubscribe())
       subscriptionsRef.current = []
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current)
+        debounceTimeoutRef.current = null
+      }
     }
   }, [fetchJobLeaderboard, fetchProgressLeaderboard])
 
@@ -221,6 +275,9 @@ export default function Leaderboard() {
     return () => {
       mountedRef.current = false
       subscriptionsRef.current.forEach(sub => sub?.unsubscribe())
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current)
+      }
     }
   }, [])
 
