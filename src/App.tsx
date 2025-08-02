@@ -9,7 +9,7 @@ import HomePage from './pages/HomePage'
 import JourneyPage from './pages/JourneyPage'
 import MentorsPage from './pages/MentorsPage'
 import BookingPage from './pages/BookingPage'
-import DashboardPage from './pages/DashboardPage'
+
 import PortfolioTemplatesPage from './pages/PortfolioTemplatesPage'
 import AIAssistantPage from './pages/AIAssistantPage'
 import ResumeReviewPage from './pages/ResumeReviewPage'
@@ -61,7 +61,7 @@ function AppContent() {
       <SessionManager />
       {user && <Navbar />}
       <Routes>
-        <Route path="/signin" element={user ? <Navigate to="/dashboard" replace /> : <SignInPage />} />
+        <Route path="/signin" element={user ? <Navigate to="/" replace /> : <SignInPage />} />
         <Route path="/" element={
           <ProtectedRoute>
             <HomePage />
@@ -87,11 +87,7 @@ function AppContent() {
             <BookingPage />
           </ProtectedRoute>
         } />
-        <Route path="/dashboard" element={
-          <ProtectedRoute>
-            <DashboardPage />
-          </ProtectedRoute>
-        } />
+
         <Route path="/portfolio-templates" element={
           <ProtectedRoute>
             <PortfolioTemplatesPage />
@@ -157,7 +153,7 @@ function AppContent() {
             <JobTrackerPage />
           </ProtectedRoute>
         } />
-        <Route path="*" element={<Navigate to={user ? "/dashboard" : "/signin"} replace />} />
+        <Route path="*" element={<Navigate to={user ? "/" : "/signin"} replace />} />
       </Routes>
       <Toaster position="top-right" />
     </div>

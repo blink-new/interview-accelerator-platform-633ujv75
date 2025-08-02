@@ -120,7 +120,7 @@ export default function HomePage() {
             <Button 
               size="lg" 
               className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3"
-              onClick={() => navigate('/dashboard')}
+              onClick={() => navigate('/journey')}
             >
               Start Your Journey
             </Button>
@@ -256,7 +256,7 @@ export default function HomePage() {
             <Button 
               size="lg" 
               className="bg-white text-blue-600 hover:bg-gray-100 px-8 py-3"
-              onClick={() => navigate('/dashboard')}
+              onClick={() => navigate('/journey')}
             >
               Start Week 1 Now
             </Button>

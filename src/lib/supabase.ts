@@ -63,14 +63,7 @@ export interface UserProfile {
   updated_at: string
 }
 
-export interface WeekCompletion {
-  id: string
-  user_id: string
-  week_number: number
-  completed: boolean
-  completed_at: string | null
-  created_at: string
-}
+
 
 export interface JobApplication {
   id: string
@@ -110,36 +103,6 @@ export interface Booking {
 }
 
 // Simplified helper functions
-export const getCompletedWeeks = async (userId: string): Promise<number[]> => {
-  const { data, error } = await supabase
-    .from('week_completions')
-    .select('week_number')
-    .eq('user_id', userId)
-    .eq('completed', true)
-  
-  if (error) {
-    console.error('Error fetching completed weeks:', error)
-    return []
-  }
-  
-  return data ? data.map(w => w.week_number) : []
-}
-
-export const markWeekComplete = async (weekNumber: number, userId: string): Promise<void> => {
-  const { error } = await supabase
-    .from('week_completions')
-    .upsert({
-      user_id: userId,
-      week_number: weekNumber,
-      completed: true,
-      completed_at: new Date().toISOString()
-    })
-  
-  if (error) {
-    console.error('Error marking week complete:', error)
-    throw error
-  }
-}
 
 export const getUserJobApplications = async (userId: string): Promise<JobApplication[]> => {
   const { data, error } = await supabase

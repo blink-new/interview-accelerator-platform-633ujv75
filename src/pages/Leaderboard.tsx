@@ -74,35 +74,14 @@ const Leaderboard = React.memo(() => {
 
       if (usersError) throw usersError
 
-      // Get completion data
-      const { data: completionsData, error: completionsError } = await supabase
-        .from('week_completions')
-        .select('user_id, week_number, completed')
-        .eq('completed', true)
-
-      if (completionsError) {
-        console.error('Error fetching completions:', completionsError)
-      }
-
-      // Process data
-      const completionsMap = new Map<string, number>()
-      if (completionsData) {
-        completionsData.forEach(completion => {
-          const current = completionsMap.get(completion.user_id) || 0
-          completionsMap.set(completion.user_id, current + 1)
-        })
-      }
-
+      // Since we removed week completions, show users with 0 progress
       const progressData = (usersData || []).map(user => {
-        const completedWeeks = completionsMap.get(user.id) || 0
-        const journeyCompletion = Math.round((completedWeeks / 8) * 100)
-
         return {
           user_id: user.id,
           user_email: user.email || 'Anonymous',
           full_name: user.full_name || 'Anonymous',
-          completed_weeks: completedWeeks,
-          journey_completion: journeyCompletion,
+          completed_weeks: 0,
+          journey_completion: 0,
           is_active: true
         }
       }).sort((a, b) => b.journey_completion - a.journey_completion || b.completed_weeks - a.completed_weeks)

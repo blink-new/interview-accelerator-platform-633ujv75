@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react'
 import { User, Session } from '@supabase/supabase-js'
 import { supabase, UserProfile } from '../lib/supabase'
-import { AuthContext, AuthContextType } from '../lib/auth-context'
+import { AuthContext } from '../lib/auth-context'
 import { toast } from 'sonner'
 import { memoryManager, requestManager } from '../lib/memoryManager'
 
@@ -62,18 +62,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     
     try {
-      // Get abort controller for this request
-      const controller = requestManager.getController('user-profile')
-      
       const { data, error } = await supabase
         .from('user_profiles')
         .select('*')
         .eq('id', userId)
         .single()
-        .abortSignal(controller.signal)
-
-      // Clean up the request
-      requestManager.cleanup('user-profile')
 
       if (error && error.code !== 'PGRST116') {
         console.error('Error fetching user profile:', error)

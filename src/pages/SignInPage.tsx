@@ -42,7 +42,7 @@ export default function SignInPage() {
           setError(error.message)
         }
       } else {
-        navigate('/dashboard')
+        navigate('/')
       }
     } catch (err) {
       setError('An unexpected error occurred. Please try again.')

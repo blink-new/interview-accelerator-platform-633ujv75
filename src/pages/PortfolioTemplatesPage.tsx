@@ -77,7 +77,7 @@ const PortfolioTemplatesPage = () => {
   const handleSelectTemplate = (templateId: number) => {
     setSelectedTemplate(templateId);
     // Here you would typically handle the purchase/selection logic
-    navigate('/dashboard?tab=portfolio&template=' + templateId);
+    navigate('/?tab=portfolio&template=' + templateId);
   };
 
   return (

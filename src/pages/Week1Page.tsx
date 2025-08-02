@@ -6,14 +6,7 @@ import { Progress } from '@/components/ui/progress'
 import { Badge } from '@/components/ui/badge'
 import { CheckCircle, Clock, Target, BookOpen } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
-import { 
-  supabase, 
-  handleActivityComplete, 
-  fetchWeekProgress, 
-  checkWeekCompletion,
-  markWeekComplete,
-  UserProgress 
-} from '@/lib/supabase'
+// import { supabase } from '@/lib/supabase' // Not used in this simplified version
 
 const activities = [
   {
@@ -51,7 +44,7 @@ const activities = [
 
 export default function Week1Page() {
   const { user } = useAuth()
-  const [userProgress, setUserProgress] = useState<UserProgress[]>([])
+  const [completedActivities, setCompletedActivities] = useState<string[]>([])
   const [isWeekComplete, setIsWeekComplete] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
 
@@ -59,11 +52,13 @@ export default function Week1Page() {
     if (!user) return
     
     try {
-      const progress = await fetchWeekProgress(user.id, 1)
-      setUserProgress(progress)
-      
-      const weekComplete = await checkWeekCompletion(1, user.id)
-      setIsWeekComplete(weekComplete)
+      // Load completed activities from localStorage for now
+      const saved = localStorage.getItem(`week1-progress-${user.id}`)
+      if (saved) {
+        const progress = JSON.parse(saved)
+        setCompletedActivities(progress.completedActivities || [])
+        setIsWeekComplete(progress.isWeekComplete || false)
+      }
     } catch (error) {
       console.error('Error loading progress:', error)
     } finally {
@@ -77,12 +72,29 @@ export default function Week1Page() {
     }
   }, [user, loadProgress])
 
+  const saveProgress = useCallback((activities: string[], weekComplete: boolean) => {
+    if (!user) return
+    
+    const progress = {
+      completedActivities: activities,
+      isWeekComplete: weekComplete
+    }
+    localStorage.setItem(`week1-progress-${user.id}`, JSON.stringify(progress))
+  }, [user])
+
   const handleActivityToggle = async (activityId: string, completed: boolean) => {
     if (!user) return
     
     try {
-      await handleActivityComplete(user.id, 1, activityId, completed)
-      await loadProgress() // Refresh progress
+      let newCompleted: string[]
+      if (completed) {
+        newCompleted = [...completedActivities, activityId]
+      } else {
+        newCompleted = completedActivities.filter(id => id !== activityId)
+      }
+      
+      setCompletedActivities(newCompleted)
+      saveProgress(newCompleted, isWeekComplete)
     } catch (error) {
       console.error('Error updating activity:', error)
     }
@@ -92,15 +104,15 @@ export default function Week1Page() {
     if (!user) return
     
     try {
-      await markWeekComplete(1, user.id)
       setIsWeekComplete(true)
+      saveProgress(completedActivities, true)
     } catch (error) {
       console.error('Error marking week complete:', error)
     }
   }
 
   const getActivityProgress = (activityId: string) => {
-    return userProgress.find(p => p.activity_id === activityId)?.completed || false
+    return completedActivities.includes(activityId)
   }
 
   const isServiceCompleted = (serviceId: string) => {
@@ -108,12 +120,12 @@ export default function Week1Page() {
     return completedServices.includes(serviceId)
   }
 
-  const completedActivities = activities.filter(activity => 
+  const completedCount = activities.filter(activity => 
     getActivityProgress(activity.id)
   ).length
 
-  const progressPercentage = (completedActivities / activities.length) * 100
-  const canCompleteWeek = completedActivities === activities.length
+  const progressPercentage = (completedCount / activities.length) * 100
+  const canCompleteWeek = completedCount === activities.length
 
   if (isLoading) {
     return (
@@ -164,7 +176,7 @@ export default function Week1Page() {
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">
-                  {completedActivities} of {activities.length} activities completed
+                  {completedCount} of {activities.length} activities completed
                 </span>
                 <span className="text-sm text-gray-600">
                   {Math.round(progressPercentage)}%
@@ -192,7 +204,7 @@ export default function Week1Page() {
           {activities.map((activity, index) => {
             const isCompleted = getActivityProgress(activity.id)
             const hasServiceId = 'serviceId' in activity
-            const serviceCompleted = hasServiceId ? isServiceCompleted(activity.serviceId) : false
+            const serviceCompleted = hasServiceId ? isServiceCompleted((activity as any).serviceId) : false
             
             return (
               <Card key={activity.id} className={`${isCompleted ? 'border-green-200 bg-green-50' : ''}`}>
@@ -242,7 +254,7 @@ export default function Week1Page() {
                           variant="outline" 
                           size="sm" 
                           className="mt-3 mr-2"
-                          onClick={() => window.location.href = '/mentors?service=' + activity.serviceId}
+                          onClick={() => window.location.href = '/mentors?service=' + (activity as any).serviceId}
                         >
                           Book Service
                         </Button>

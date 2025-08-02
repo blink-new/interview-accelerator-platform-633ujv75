@@ -57,7 +57,7 @@ export default function JobTrackerPage() {
     job_url: '',
     location: '',
     salary_range: '',
-    status: 'applied' as const,
+    status: 'applied' as JobApplication['status'],
     notes: ''
   })
 
@@ -420,7 +420,7 @@ export default function JobTrackerPage() {
                   </div>
                   <div>
                     <Label htmlFor="status">Status</Label>
-                    <Select value={formData.status} onValueChange={(value: any) => setFormData({ ...formData, status: value })}>
+                    <Select value={formData.status} onValueChange={(value: JobApplication['status']) => setFormData({ ...formData, status: value })}>
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>

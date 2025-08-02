@@ -307,10 +307,10 @@ const JourneyPage = () => {
                     Schedule Session
                   </Button>
                 </Link>
-                <Link to="/dashboard">
+                <Link to="/">
                   <Button variant="outline" className="w-full justify-start">
                     <Award className="w-4 h-4 mr-2" />
-                    View Progress
+                    Back to Home
                   </Button>
                 </Link>
               </CardContent>

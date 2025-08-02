@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
-import { Menu, X, Target, Users, Calendar, BarChart3, LogOut, User, Briefcase } from 'lucide-react'
+import { Menu, X, Target, Users, LogOut, User, Briefcase } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 
 const Navbar = () => {
@@ -14,7 +14,6 @@ const Navbar = () => {
     { name: 'Journey', href: '/journey', icon: Target },
     { name: 'Mentors', href: '/mentors', icon: Users },
     { name: 'Job Tracker', href: '/job-tracker', icon: Briefcase },
-    { name: 'Dashboard', href: '/dashboard', icon: BarChart3 },
   ]
 
   const isActive = useCallback((path: string) => location.pathname === path, [location.pathname])

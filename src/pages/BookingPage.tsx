@@ -173,8 +173,8 @@ const BookingPage = () => {
               </div>
 
               <div className="flex space-x-4">
-                <Link to="/dashboard" className="flex-1">
-                  <Button className="w-full">Go to Dashboard</Button>
+                <Link to="/" className="flex-1">
+                  <Button className="w-full">Go to Home</Button>
                 </Link>
                 <Link to="/mentors">
                   <Button variant="outline">Book Another Session</Button>
