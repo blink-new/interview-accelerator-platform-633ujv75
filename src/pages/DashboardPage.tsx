@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react"
+import { useState, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -132,30 +132,30 @@ export default function DashboardPage() {
     return 'Program finished'
   }, [currentWeek, totalWeeks, weeklyProgram])
 
-  // Memoize callback functions to prevent re-renders
-  const handleMarkWeekComplete = useCallback((weekNumber: number) => {
+  // Simple event handlers
+  const handleMarkWeekComplete = (weekNumber: number) => {
     markWeekComplete(weekNumber)
-  }, [markWeekComplete])
+  }
 
-  const handleNavigateToJourney = useCallback(() => {
+  const handleNavigateToJourney = () => {
     navigate('/journey')
-  }, [navigate])
+  }
 
-  const handleNavigateToResumeReview = useCallback(() => {
+  const handleNavigateToResumeReview = () => {
     navigate('/resume-review')
-  }, [navigate])
+  }
 
-  const handleNavigateToMockInterviews = useCallback(() => {
+  const handleNavigateToMockInterviews = () => {
     navigate('/mock-interviews')
-  }, [navigate])
+  }
 
-  const handleOpenMentorCalendar = useCallback(() => {
+  const handleOpenMentorCalendar = () => {
     window.open('https://calendly.com/mentorque-edu/30min?month=2025-08', '_blank')
-  }, [])
+  }
 
-  const toggleShowAllWeeks = useCallback(() => {
+  const toggleShowAllWeeks = () => {
     setShowAllWeeks(prev => !prev)
-  }, [])
+  }
 
   if (isLoading) {
     return (
