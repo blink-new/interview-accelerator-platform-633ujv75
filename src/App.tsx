@@ -22,7 +22,8 @@ import CompetencyInterviewPage from './pages/CompetencyInterviewPage'
 import TechnicalInterviewPage from './pages/TechnicalInterviewPage'
 import BehavioralInterviewPage from './pages/BehavioralInterviewPage'
 import JobTrackerPage from './pages/JobTrackerPage'
-import AdminPage from './pages/AdminPage'
+import Leaderboard from './pages/Leaderboard'
+
 import SignInPage from './pages/SignInPage'
 import Navbar from './components/layout/Navbar'
 
@@ -150,9 +151,9 @@ function AppContent() {
             <JobTrackerPage />
           </ProtectedRoute>
         } />
-        <Route path="/admin" element={
+        <Route path="/leaderboard" element={
           <ProtectedRoute>
-            <AdminPage />
+            <Leaderboard />
           </ProtectedRoute>
         } />
         <Route path="*" element={<Navigate to={user ? "/dashboard" : "/signin"} replace />} />

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react"
+import { useState, useMemo, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -17,6 +17,7 @@ import {
 } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import { useAuth } from "@/hooks/useAuth"
+import { useProgress } from "@/hooks/useProgress"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 
@@ -31,9 +32,7 @@ interface WeekProgram {
 export default function DashboardPage() {
   const navigate = useNavigate()
   const { user, userProfile } = useAuth()
-  const [overallProgress, setOverallProgress] = useState(0)
-  const [completedWeeks, setCompletedWeeks] = useState<number[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+  const { completedWeeks, overallProgress, isLoading, markWeekComplete } = useProgress()
   const [showAllWeeks, setShowAllWeeks] = useState(false)
 
   const weeklyProgram: WeekProgram[] = useMemo(() => [
@@ -95,71 +94,7 @@ export default function DashboardPage() {
     }
   ], [])
 
-  const loadUserProgress = useCallback(async () => {
-    if (!user) {
-      setIsLoading(false)
-      return
-    }
-    
-    try {
-      setIsLoading(true)
-      
-      const { data: completions, error } = await supabase
-        .from('week_completions')
-        .select('week_number')
-        .eq('user_id', user.id)
-        .eq('completed', true)
-      
-      if (error) {
-        console.error('Database error loading progress:', error)
-        setCompletedWeeks([])
-        setOverallProgress(0)
-        return
-      }
-      
-      const completed = completions ? completions.map(c => c.week_number) : []
-      setCompletedWeeks(completed)
-      
-      const progress = (completed.length / 8) * 100
-      setOverallProgress(progress)
-      
-    } catch (error) {
-      console.error('Error loading user progress:', error)
-      setCompletedWeeks([])
-      setOverallProgress(0)
-    } finally {
-      setIsLoading(false)
-    }
-  }, [user])
 
-  useEffect(() => {
-    if (user) {
-      loadUserProgress()
-    } else {
-      setIsLoading(false)
-    }
-  }, [user, loadUserProgress])
-
-  const handleMarkWeekComplete = useCallback(async (weekNumber: number) => {
-    if (!user) return
-    
-    try {
-      await supabase
-        .from('week_completions')
-        .upsert({
-          user_id: user.id,
-          week_number: weekNumber,
-          completed: true,
-          completed_at: new Date().toISOString()
-        })
-      
-      await loadUserProgress()
-      toast.success(`Week ${weekNumber} marked as complete!`)
-    } catch (error) {
-      console.error('Error marking week complete:', error)
-      toast.error('Failed to update progress')
-    }
-  }, [user, loadUserProgress])
 
   const updatedWeeklyProgram = useMemo(() => {
     return weeklyProgram.map(week => {
@@ -389,7 +324,7 @@ export default function DashboardPage() {
                         {week.current && !week.completed && (
                           <Button 
                             size="sm" 
-                            onClick={() => handleMarkWeekComplete(week.week)}
+                            onClick={() => markWeekComplete(week.week)}
                             className="bg-blue-600 hover:bg-blue-700"
                           >
                             Mark Week Complete
