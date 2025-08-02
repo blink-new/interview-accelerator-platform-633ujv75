@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -14,6 +14,7 @@ import { Plus, Briefcase, Calendar, MapPin, DollarSign, Trophy, TrendingUp, User
 import { useAuth } from "@/hooks/useAuth"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
+import { memoryManager, requestManager, useMemoryCleanup } from "@/lib/memoryManager"
 
 interface JobApplication {
   id: string
@@ -47,6 +48,8 @@ export default function JobTrackerPage() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [editingApplication, setEditingApplication] = useState<JobApplication | null>(null)
   const [loading, setLoading] = useState(true)
+  const componentMountedRef = useRef(true)
+  const cleanup = useMemoryCleanup()
 
   const [formData, setFormData] = useState({
     company_name: '',
@@ -77,42 +80,159 @@ export default function JobTrackerPage() {
   }
 
   const fetchApplications = useCallback(async () => {
+    if (!user || !componentMountedRef.current) return
+    
+    const cacheKey = `job-applications-${user.id}`
+    
+    // Check cache first
+    const cachedData = memoryManager.get(cacheKey)
+    if (cachedData && componentMountedRef.current) {
+      setApplications(cachedData)
+      setLoading(false)
+      return
+    }
+    
     try {
+      // Get abort controller for this request
+      const controller = requestManager.getController('job-applications')
+      
       const { data, error } = await supabase
         .from('job_applications')
         .select('*')
-        .eq('user_id', user?.id)
+        .eq('user_id', user.id)
         .order('created_at', { ascending: false })
+        .abortSignal(controller.signal)
 
+      // Clean up the request
+      requestManager.cleanup('job-applications')
+      
+      if (!componentMountedRef.current) return
+      
       if (error) throw error
-      setApplications(data || [])
+      
+      const applications = data || []
+      
+      // Cache the result
+      memoryManager.set(cacheKey, applications, 3 * 60 * 1000) // Cache for 3 minutes
+      
+      if (componentMountedRef.current) {
+        setApplications(applications)
+      }
     } catch (error) {
+      if (!componentMountedRef.current) return
+      
+      // Ignore aborted requests
+      if (error instanceof Error && error.name === 'AbortError') {
+        return
+      }
+      
       console.error('Error fetching applications:', error)
       toast.error('Failed to load applications')
     } finally {
-      setLoading(false)
+      if (componentMountedRef.current) {
+        setLoading(false)
+      }
     }
   }, [user])
 
   const fetchLeaderboard = async () => {
+    if (!componentMountedRef.current) return
+    
+    const cacheKey = 'job-applications-leaderboard'
+    
+    // Check cache first
+    const cachedData = memoryManager.get(cacheKey)
+    if (cachedData && componentMountedRef.current) {
+      setLeaderboard(cachedData)
+      return
+    }
+    
     try {
+      // Get abort controller for this request
+      const controller = requestManager.getController('leaderboard')
+      
       const { data, error } = await supabase
         .from('job_applications_leaderboard')
         .select('*')
         .order('total_applications', { ascending: false })
         .limit(10)
+        .abortSignal(controller.signal)
 
+      // Clean up the request
+      requestManager.cleanup('leaderboard')
+      
+      if (!componentMountedRef.current) return
+      
       if (error) throw error
-      setLeaderboard(data || [])
+      
+      const leaderboard = data || []
+      
+      // Cache the result
+      memoryManager.set(cacheKey, leaderboard, 5 * 60 * 1000) // Cache for 5 minutes
+      
+      if (componentMountedRef.current) {
+        setLeaderboard(leaderboard)
+      }
     } catch (error) {
+      if (!componentMountedRef.current) return
+      
+      // Ignore aborted requests
+      if (error instanceof Error && error.name === 'AbortError') {
+        return
+      }
+      
       console.error('Error fetching leaderboard:', error)
     }
   }
 
   useEffect(() => {
-    if (user) {
+    if (user && componentMountedRef.current) {
       fetchApplications()
       fetchLeaderboard()
+    }
+  }, [user, fetchApplications])
+
+  // Component cleanup
+  useEffect(() => {
+    return () => {
+      componentMountedRef.current = false
+      requestManager.cancel('job-applications')
+      requestManager.cancel('leaderboard')
+      cleanup()
+    }
+  }, [cleanup])
+
+  // Handle visibility changes
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // Cancel pending requests when page is hidden
+        requestManager.cancel('job-applications')
+        requestManager.cancel('leaderboard')
+      } else if (user && componentMountedRef.current) {
+        // Check if we need to refresh data when page becomes visible
+        const appCacheKey = `job-applications-${user.id}`
+        const leaderboardCacheKey = 'job-applications-leaderboard'
+        
+        const cachedApps = memoryManager.get(appCacheKey)
+        const cachedLeaderboard = memoryManager.get(leaderboardCacheKey)
+        
+        if (!cachedApps || !cachedLeaderboard) {
+          // Only reload if we don't have cached data
+          setTimeout(() => {
+            if (componentMountedRef.current) {
+              if (!cachedApps) fetchApplications()
+              if (!cachedLeaderboard) fetchLeaderboard()
+            }
+          }, 1000)
+        }
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [user, fetchApplications])
 

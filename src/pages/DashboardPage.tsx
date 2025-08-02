@@ -20,6 +20,7 @@ import { useAuth } from "@/hooks/useAuth"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import { SessionStatus } from "@/components/SessionStatus"
+import { memoryManager, requestManager, createMemoryAwareDebounce, useMemoryCleanup } from "@/lib/memoryManager"
 
 interface WeekProgram {
   week: number
@@ -39,6 +40,8 @@ export default function DashboardPage() {
   const [hasInitialized, setHasInitialized] = useState(false)
   const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const isLoadingRef = useRef(false)
+  const componentMountedRef = useRef(true)
+  const cleanup = useMemoryCleanup()
 
   const weeklyProgram: WeekProgram[] = useMemo(() => [
     { 
@@ -155,8 +158,20 @@ export default function DashboardPage() {
   ], [])
 
   const loadUserProgress = useCallback(async () => {
-    if (!user || isLoadingRef.current) {
-      if (!user) setIsLoading(false)
+    if (!user || isLoadingRef.current || !componentMountedRef.current) {
+      if (!user && componentMountedRef.current) setIsLoading(false)
+      return
+    }
+    
+    const cacheKey = `user-progress-${user.id}`
+    
+    // Check cache first
+    const cachedData = memoryManager.get(cacheKey)
+    if (cachedData && componentMountedRef.current) {
+      setCompletedWeeks(cachedData.completedWeeks)
+      setOverallProgress(cachedData.overallProgress)
+      setHasInitialized(true)
+      setIsLoading(false)
       return
     }
     
@@ -164,7 +179,7 @@ export default function DashboardPage() {
       isLoadingRef.current = true
       
       // Don't set loading state if page is hidden (tab switching)
-      if (!document.hidden) {
+      if (!document.hidden && componentMountedRef.current) {
         setIsLoading(true)
       }
       
@@ -173,22 +188,20 @@ export default function DashboardPage() {
         clearTimeout(loadingTimeoutRef.current)
       }
       
-      // Clear any cached data first
-      setCompletedWeeks([])
-      setOverallProgress(0)
+      // Get abort controller for this request
+      const controller = requestManager.getController('dashboard-progress')
       
-      // Add timeout to prevent hanging requests
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Request timeout')), 10000)
-      )
-      
-      const dataPromise = supabase
+      const { data: completions, error } = await supabase
         .from('week_completions')
         .select('week_number')
         .eq('user_id', user.id)
         .eq('completed', true)
+        .abortSignal(controller.signal)
       
-      const { data: completions, error } = await Promise.race([dataPromise, timeoutPromise]) as any
+      // Clean up the request
+      requestManager.cleanup('dashboard-progress')
+      
+      if (!componentMountedRef.current) return
       
       if (error) {
         console.error('Database error loading progress:', error)
@@ -196,27 +209,41 @@ export default function DashboardPage() {
         // Check if it's an auth error
         if (error.message?.includes('JWT') || error.message?.includes('expired') || error.message?.includes('invalid')) {
           toast.error('Session expired. Please sign in again.')
-          // Don't set default values, let auth handle logout
           return
         }
         
         // For other errors, set defaults and continue
-        setCompletedWeeks([])
-        setOverallProgress(0)
-        setHasInitialized(true)
+        if (componentMountedRef.current) {
+          setCompletedWeeks([])
+          setOverallProgress(0)
+          setHasInitialized(true)
+        }
         return
       }
       
       const completed = completions ? completions.map(c => c.week_number) : []
-      setCompletedWeeks(completed)
-      
-      // Calculate progress based on completed weeks
       const progress = (completed.length / 8) * 100
-      setOverallProgress(progress)
       
-      setHasInitialized(true)
+      // Cache the result
+      memoryManager.set(cacheKey, {
+        completedWeeks: completed,
+        overallProgress: progress
+      }, 2 * 60 * 1000) // Cache for 2 minutes
+      
+      if (componentMountedRef.current) {
+        setCompletedWeeks(completed)
+        setOverallProgress(progress)
+        setHasInitialized(true)
+      }
       
     } catch (error) {
+      if (!componentMountedRef.current) return
+      
+      // Ignore aborted requests
+      if (error instanceof Error && error.name === 'AbortError') {
+        return
+      }
+      
       console.error('Error loading user progress:', error)
       
       // Handle different types of errors
@@ -225,23 +252,34 @@ export default function DashboardPage() {
           toast.error('Loading took too long. Please refresh the page.')
         } else if (error.message?.includes('JWT') || error.message?.includes('expired')) {
           toast.error('Session expired. Please sign in again.')
-          return // Don't set defaults, let auth handle logout
+          return
         }
       }
       
       // Set default values on error
-      setCompletedWeeks([])
-      setOverallProgress(0)
-      setHasInitialized(true)
+      if (componentMountedRef.current) {
+        setCompletedWeeks([])
+        setOverallProgress(0)
+        setHasInitialized(true)
+      }
     } finally {
       isLoadingRef.current = false
-      // Always clear loading state regardless of visibility
-      setIsLoading(false)
+      if (componentMountedRef.current) {
+        setIsLoading(false)
+      }
     }
   }, [user])
 
+  // Debounced version of loadUserProgress to prevent excessive calls
+  const debouncedLoadUserProgress = useMemo(
+    () => createMemoryAwareDebounce(loadUserProgress, 500),
+    [loadUserProgress]
+  )
+
   // Reset state when component mounts or user changes
   useEffect(() => {
+    if (!componentMountedRef.current) return
+    
     // Clear any stale state immediately
     setIsLoading(true)
     setHasInitialized(false)
@@ -249,34 +287,66 @@ export default function DashboardPage() {
     setOverallProgress(0)
     
     if (user) {
-      loadUserProgress()
+      debouncedLoadUserProgress()
     } else {
       setIsLoading(false)
     }
-  }, [user, loadUserProgress])
+  }, [user, debouncedLoadUserProgress])
 
   // Handle visibility changes to prevent loading during tab switches
   useEffect(() => {
+    const currentTimeoutRef = loadingTimeoutRef.current
+    
     const handleVisibilityChange = () => {
       if (document.hidden) {
-        // Page is being hidden, don't trigger any loading states
-        if (loadingTimeoutRef.current) {
-          clearTimeout(loadingTimeoutRef.current)
+        // Page is being hidden, cancel any pending requests
+        requestManager.cancel('dashboard-progress')
+        if (currentTimeoutRef) {
+          clearTimeout(currentTimeoutRef)
+        }
+      } else if (user && componentMountedRef.current) {
+        // Page is visible again, check if we need to refresh data
+        const cacheKey = `user-progress-${user.id}`
+        const cachedData = memoryManager.get(cacheKey)
+        if (!cachedData) {
+          // Only reload if we don't have cached data
+          setTimeout(() => {
+            if (componentMountedRef.current) {
+              debouncedLoadUserProgress()
+            }
+          }, 1000) // Small delay to ensure page is fully visible
         }
       }
     }
 
     document.addEventListener('visibilitychange', handleVisibilityChange)
     
-    const currentTimeoutRef = loadingTimeoutRef.current
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       if (currentTimeoutRef) {
         clearTimeout(currentTimeoutRef)
       }
+      // Cleanup debounced function
+      if ((debouncedLoadUserProgress as any).cleanup) {
+        (debouncedLoadUserProgress as any).cleanup()
+      }
+    }
+  }, [user, debouncedLoadUserProgress])
+
+  // Component cleanup
+  useEffect(() => {
+    const currentTimeoutRef = loadingTimeoutRef.current
+    
+    return () => {
+      componentMountedRef.current = false
+      requestManager.cancel('dashboard-progress')
+      cleanup()
+      if (currentTimeoutRef) {
+        clearTimeout(currentTimeoutRef)
+      }
       isLoadingRef.current = false
     }
-  }, [])
+  }, [cleanup])
 
   const handleMarkWeekComplete = useCallback(async (weekNumber: number) => {
     if (!user) return

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useCallback } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
+import { createMemoryAwareDebounce } from '@/lib/memoryManager'
 
 export const SessionManager: React.FC = () => {
   const { user, signOut } = useAuth()
@@ -71,6 +72,9 @@ export const SessionManager: React.FC = () => {
     }
   }, [user, signOut])
 
+  // Debounced version to prevent excessive validation calls
+  const debouncedValidateSession = createMemoryAwareDebounce(validateSession, 2000)
+
   useEffect(() => {
     if (!user) {
       // Clear interval if user is not logged in
@@ -82,12 +86,12 @@ export const SessionManager: React.FC = () => {
     }
 
     // Validate session immediately
-    validateSession()
+    debouncedValidateSession()
 
-    // Set up periodic session validation (every 2 minutes)
+    // Set up periodic session validation (every 3 minutes to reduce load)
     sessionCheckIntervalRef.current = setInterval(() => {
-      validateSession()
-    }, 2 * 60 * 1000) // 2 minutes
+      debouncedValidateSession()
+    }, 3 * 60 * 1000) // 3 minutes
 
     return () => {
       if (sessionCheckIntervalRef.current) {
@@ -95,7 +99,7 @@ export const SessionManager: React.FC = () => {
         sessionCheckIntervalRef.current = null
       }
     }
-  }, [user, validateSession])
+  }, [user, debouncedValidateSession])
 
   // Handle page visibility changes - only validate if page was hidden for more than 5 minutes
   useEffect(() => {
@@ -109,7 +113,7 @@ export const SessionManager: React.FC = () => {
         // Only validate session if page was hidden for more than 5 minutes
         if (hiddenDuration > 5 * 60 * 1000) {
           setTimeout(() => {
-            validateSession()
+            debouncedValidateSession()
           }, 2000) // Longer delay to ensure page is fully loaded
         }
         pageHiddenTime = null
@@ -120,7 +124,7 @@ export const SessionManager: React.FC = () => {
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [user, validateSession])
+  }, [user, debouncedValidateSession])
 
   // Handle online/offline events
   useEffect(() => {
@@ -128,7 +132,7 @@ export const SessionManager: React.FC = () => {
       if (user) {
         // When coming back online, validate session
         setTimeout(() => {
-          validateSession()
+          debouncedValidateSession()
         }, 2000) // Give some time for connection to stabilize
       }
     }
@@ -137,7 +141,7 @@ export const SessionManager: React.FC = () => {
     return () => {
       window.removeEventListener('online', handleOnline)
     }
-  }, [user, validateSession])
+  }, [user, debouncedValidateSession])
 
   return null // This component doesn't render anything
 }

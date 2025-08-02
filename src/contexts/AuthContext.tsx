@@ -3,6 +3,7 @@ import { User, Session } from '@supabase/supabase-js'
 import { supabase, UserProfile } from '../lib/supabase'
 import { AuthContext, AuthContextType } from '../lib/auth-context'
 import { toast } from 'sonner'
+import { memoryManager, requestManager } from '../lib/memoryManager'
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null)
@@ -28,6 +29,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUserProfile(null)
     setSession(null)
     
+    // Cancel all pending requests
+    requestManager.cancelAll()
+    
+    // Clear memory cache
+    memoryManager.clear()
+    
     // Only clear auth-related data, not all cached data
     try {
       localStorage.removeItem('supabase.auth.token')
@@ -45,12 +52,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }
 
   const fetchUserProfile = useCallback(async (userId: string) => {
+    const cacheKey = `user-profile-${userId}`
+    
+    // Check cache first
+    const cachedProfile = memoryManager.get(cacheKey)
+    if (cachedProfile) {
+      setUserProfile(cachedProfile)
+      return
+    }
+    
     try {
+      // Get abort controller for this request
+      const controller = requestManager.getController('user-profile')
+      
       const { data, error } = await supabase
         .from('user_profiles')
         .select('*')
         .eq('id', userId)
         .single()
+        .abortSignal(controller.signal)
+
+      // Clean up the request
+      requestManager.cleanup('user-profile')
 
       if (error && error.code !== 'PGRST116') {
         console.error('Error fetching user profile:', error)
@@ -73,8 +96,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // Reset error count on successful request
       authErrorCountRef.current = 0
+      
+      // Cache the profile
+      if (data) {
+        memoryManager.set(cacheKey, data, 10 * 60 * 1000) // Cache for 10 minutes
+      }
+      
       setUserProfile(data)
     } catch (error) {
+      // Ignore aborted requests
+      if (error instanceof Error && error.name === 'AbortError') {
+        return
+      }
+      
       console.error('Error fetching user profile:', error)
       
       // Handle network errors vs auth errors
