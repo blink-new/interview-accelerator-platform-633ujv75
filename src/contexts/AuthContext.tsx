@@ -1,34 +1,50 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react'
 import { User, Session } from '@supabase/supabase-js'
 import { supabase, UserProfile } from '../lib/supabase'
-import { AuthContext } from '../lib/auth-context'
+import { AuthContext, AuthContextType } from '../lib/auth-context'
+import { toast } from 'sonner'
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null)
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  
-  // Use refs to prevent stale closures and unnecessary re-renders
-  const mountedRef = useRef(true)
-  const initializingRef = useRef(false)
+  const sessionTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const lastActivityRef = useRef<number>(Date.now())
+  const authErrorCountRef = useRef<number>(0)
+  const lastAuthErrorRef = useRef<number>(0)
 
-  const signOut = useCallback(async () => {
-    // Clear all local state first
+  const signOut = async () => {
+    if (sessionTimeoutRef.current) {
+      clearTimeout(sessionTimeoutRef.current)
+    }
+    
+    // Reset error counters
+    authErrorCountRef.current = 0
+    lastAuthErrorRef.current = 0
+    
+    // Clear all local state
     setUser(null)
     setUserProfile(null)
     setSession(null)
+    
+    // Only clear auth-related data, not all cached data
+    try {
+      localStorage.removeItem('supabase.auth.token')
+      sessionStorage.removeItem('supabase.auth.token')
+    } catch (error) {
+      // Ignore storage errors
+    }
     
     try {
       await supabase.auth.signOut()
     } catch (error) {
       console.error('Error during signOut:', error)
+      // Even if signOut fails, we've cleared local state
     }
-  }, [])
+  }
 
   const fetchUserProfile = useCallback(async (userId: string) => {
-    if (!userId || !mountedRef.current) return
-    
     try {
       const { data, error } = await supabase
         .from('user_profiles')
@@ -38,58 +54,93 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (error && error.code !== 'PGRST116') {
         console.error('Error fetching user profile:', error)
+        
+        // If it's an auth error, increment error count
+        if (error.message?.includes('JWT') || error.message?.includes('expired') || error.message?.includes('invalid')) {
+          authErrorCountRef.current += 1
+          lastAuthErrorRef.current = Date.now()
+          
+          // If we have multiple auth errors in a short time, force logout
+          if (authErrorCountRef.current >= 3) {
+            console.log('Multiple auth errors detected, forcing logout')
+            toast.error('Authentication error. Please sign in again.')
+            await signOut()
+            return
+          }
+        }
         return
       }
 
-      if (mountedRef.current) {
-        setUserProfile(data)
-      }
+      // Reset error count on successful request
+      authErrorCountRef.current = 0
+      setUserProfile(data)
     } catch (error) {
       console.error('Error fetching user profile:', error)
+      
+      // Handle network errors vs auth errors
+      if (error instanceof Error) {
+        if (error.message?.includes('JWT') || error.message?.includes('expired') || error.message?.includes('invalid')) {
+          authErrorCountRef.current += 1
+          lastAuthErrorRef.current = Date.now()
+          
+          if (authErrorCountRef.current >= 3) {
+            console.log('Multiple auth errors detected, forcing logout')
+            toast.error('Authentication error. Please sign in again.')
+            await signOut()
+          }
+        }
+      }
     }
   }, [])
 
-  useEffect(() => {
-    mountedRef.current = true
-    
-    // Prevent double initialization
-    if (initializingRef.current) return
-    initializingRef.current = true
-
-    // Get initial session
-    const getInitialSession = async () => {
-      try {
-        const { data: { session }, error } = await supabase.auth.getSession()
-        
-        if (error) {
-          console.error('Error getting initial session:', error)
-          if (mountedRef.current) setIsLoading(false)
-          return
-        }
-        
-        if (mountedRef.current) {
-          setSession(session)
-          setUser(session?.user ?? null)
-          
-          if (session?.user) {
-            await fetchUserProfile(session.user.id)
-          }
-          
-          setIsLoading(false)
-        }
-      } catch (error) {
-        console.error('Error in getInitialSession:', error)
-        if (mountedRef.current) setIsLoading(false)
-      }
+  // Session timeout management
+  const resetSessionTimeout = useCallback(() => {
+    if (sessionTimeoutRef.current) {
+      clearTimeout(sessionTimeoutRef.current)
     }
+    
+    lastActivityRef.current = Date.now()
+    
+    // Set timeout for 30 minutes of inactivity
+    sessionTimeoutRef.current = setTimeout(() => {
+      console.log('Session timeout due to inactivity')
+      toast.info('You have been logged out due to inactivity.')
+      signOut()
+    }, 30 * 60 * 1000) // 30 minutes
+  }, [])
 
-    getInitialSession()
+  // Track user activity - debounced to prevent excessive calls
+  const handleUserActivity = useCallback(() => {
+    const now = Date.now()
+    const timeSinceLastActivity = now - lastActivityRef.current
+    
+    // Only reset timeout if more than 5 minutes has passed since last activity
+    if (timeSinceLastActivity > 5 * 60 * 1000) {
+      resetSessionTimeout()
+    }
+  }, [resetSessionTimeout])
+
+  useEffect(() => {
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error) {
+        console.error('Error getting initial session:', error)
+        setIsLoading(false)
+        return
+      }
+      
+      setSession(session)
+      setUser(session?.user ?? null)
+      if (session?.user) {
+        fetchUserProfile(session.user.id)
+        resetSessionTimeout()
+      }
+      setIsLoading(false)
+    })
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        if (!mountedRef.current) return
-
         console.log('Auth state change:', event, session?.user?.id)
         
         setSession(session)
@@ -97,24 +148,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         
         if (session?.user) {
           await fetchUserProfile(session.user.id)
+          resetSessionTimeout()
+          // Reset error count on successful auth
+          authErrorCountRef.current = 0
         } else {
           setUserProfile(null)
+          if (sessionTimeoutRef.current) {
+            clearTimeout(sessionTimeoutRef.current)
+          }
         }
         
         setIsLoading(false)
       }
     )
 
-    return () => {
-      mountedRef.current = false
-      subscription.unsubscribe()
-    }
-  }, [fetchUserProfile])
+    // Add activity listeners - only essential events to reduce overhead
+    const events = ['click', 'keypress', 'touchstart']
+    events.forEach(event => {
+      document.addEventListener(event, handleUserActivity, { passive: true })
+    })
 
-  const signUp = useCallback(async (email: string, password: string, fullName: string) => {
+    return () => {
+      subscription.unsubscribe()
+      if (sessionTimeoutRef.current) {
+        clearTimeout(sessionTimeoutRef.current)
+      }
+      events.forEach(event => {
+        document.removeEventListener(event, handleUserActivity)
+      })
+    }
+  }, [fetchUserProfile, resetSessionTimeout, handleUserActivity])
+
+  const signUp = async (email: string, password: string, fullName: string) => {
     try {
-      setIsLoading(true)
-      
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
@@ -125,63 +191,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       })
 
-      if (error) {
-        setIsLoading(false)
-        return { error }
-      }
+      if (error) return { error }
 
-      // Create user profile immediately after signup
+      // Create user profile
       if (data.user) {
-        try {
-          const { error: profileError } = await supabase
-            .from('user_profiles')
-            .insert({
-              id: data.user.id,
-              full_name: fullName,
-              email: email,
-              role: 'user'
-            })
+        const { error: profileError } = await supabase
+          .from('user_profiles')
+          .insert({
+            id: data.user.id,
+            full_name: fullName
+          })
 
-          if (profileError) {
-            console.error('Error creating user profile:', profileError)
-            // Don't fail the signup if profile creation fails
-          }
-        } catch (profileError) {
+        if (profileError) {
           console.error('Error creating user profile:', profileError)
         }
       }
 
-      setIsLoading(false)
       return { error: null }
     } catch (error) {
-      setIsLoading(false)
       return { error }
     }
-  }, [])
+  }
 
-  const signIn = useCallback(async (email: string, password: string) => {
+  const signIn = async (email: string, password: string) => {
     try {
-      setIsLoading(true)
-      
       const { error } = await supabase.auth.signInWithPassword({
         email,
         password
       })
 
-      if (error) {
-        setIsLoading(false)
-        return { error }
-      }
-
-      // Don't set loading to false here - let the auth state change handle it
-      return { error: null }
+      return { error }
     } catch (error) {
-      setIsLoading(false)
       return { error }
     }
-  }, [])
+  }
 
-  const resetPassword = useCallback(async (email: string) => {
+  const resetPassword = async (email: string) => {
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: `${window.location.origin}/reset-password`
@@ -191,7 +236,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (error) {
       return { error }
     }
-  }, [])
+  }
 
   const value = {
     user,
@@ -201,7 +246,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     signUp,
     signIn,
     signOut,
-    logout: signOut, // Alias for performance monitor
     resetPassword
   }
 

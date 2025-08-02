@@ -1,27 +1,23 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Menu, X, Target, Users, Calendar, BarChart3, LogOut, User, Briefcase } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 
-const Navbar = React.memo(() => {
+const Navbar = () => {
   const [isOpen, setIsOpen] = useState(false)
   const location = useLocation()
   const { user, userProfile, signOut } = useAuth()
 
-  const navigation = useMemo(() => [
+  const navigation = [
     { name: 'Home', href: '/', icon: Target },
     { name: 'Journey', href: '/journey', icon: Target },
     { name: 'Mentors', href: '/mentors', icon: Users },
     { name: 'Job Tracker', href: '/job-tracker', icon: Briefcase },
     { name: 'Dashboard', href: '/dashboard', icon: BarChart3 },
-  ], [])
+  ]
 
   const isActive = useCallback((path: string) => location.pathname === path, [location.pathname])
-
-  const displayName = useMemo(() => 
-    userProfile?.full_name || user?.email?.split('@')[0] || 'User'
-  , [userProfile?.full_name, user?.email])
 
   // Close mobile menu when route changes
   useEffect(() => {
@@ -56,18 +52,6 @@ const Navbar = React.memo(() => {
       return () => document.removeEventListener('click', handleClickOutside)
     }
   }, [isOpen])
-
-  const handleToggleMenu = useCallback(() => {
-    setIsOpen(prev => !prev)
-  }, [])
-
-  const handleCloseMobileMenu = useCallback(() => {
-    setIsOpen(false)
-  }, [])
-
-  const handleSignOut = useCallback(() => {
-    signOut()
-  }, [signOut])
 
   return (
     <nav className="bg-white/80 backdrop-blur-md border-b border-border sticky top-0 z-50">
@@ -106,12 +90,12 @@ const Navbar = React.memo(() => {
           <div className="hidden md:flex items-center space-x-4">
             <div className="flex items-center space-x-2 text-sm text-gray-600">
               <User className="w-4 h-4" />
-              <span>Welcome, {displayName}</span>
+              <span>Welcome, {userProfile?.full_name || user?.email?.split('@')[0] || 'User'}</span>
             </div>
             <Button 
               variant="outline" 
               size="sm"
-              onClick={handleSignOut}
+              onClick={signOut}
               className="flex items-center space-x-1"
             >
               <LogOut className="w-4 h-4" />
@@ -124,7 +108,7 @@ const Navbar = React.memo(() => {
             <Button
               variant="ghost"
               size="sm"
-              onClick={handleToggleMenu}
+              onClick={() => setIsOpen(!isOpen)}
             >
               {isOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </Button>
@@ -146,7 +130,7 @@ const Navbar = React.memo(() => {
                         ? 'text-primary bg-primary/10'
                         : 'text-muted-foreground hover:text-foreground hover:bg-muted'
                     }`}
-                    onClick={handleCloseMobileMenu}
+                    onClick={() => setIsOpen(false)}
                   >
                     <Icon className="w-4 h-4" />
                     <span>{item.name}</span>
@@ -156,12 +140,12 @@ const Navbar = React.memo(() => {
               <div className="pt-4 space-y-2">
                 <div className="flex items-center space-x-2 text-sm text-gray-600 px-3 py-2">
                   <User className="w-4 h-4" />
-                  <span>Welcome, {displayName}</span>
+                  <span>Welcome, {userProfile?.full_name || user?.email?.split('@')[0] || 'User'}</span>
                 </div>
                 <Button 
                   variant="outline" 
                   className="w-full flex items-center justify-center space-x-1"
-                  onClick={handleSignOut}
+                  onClick={signOut}
                 >
                   <LogOut className="w-4 h-4" />
                   <span>Sign Out</span>
@@ -173,8 +157,6 @@ const Navbar = React.memo(() => {
       </div>
     </nav>
   )
-})
-
-Navbar.displayName = 'Navbar'
+}
 
 export default Navbar

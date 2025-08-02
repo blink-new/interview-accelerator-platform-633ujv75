@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -15,47 +15,18 @@ export default function SignInPage() {
   const [fullName, setFullName] = useState('')
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
-  const [isSigningIn, setIsSigningIn] = useState(false)
-  const [isSigningUp, setIsSigningUp] = useState(false)
-  const [recoveryMessage, setRecoveryMessage] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
   const { signIn, signUp } = useAuth()
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
-
-  // Handle emergency recovery reasons
-  useEffect(() => {
-    const reason = searchParams.get('reason')
-    if (reason) {
-      const messages = {
-        freeze_recovery: '🧊 System freeze detected. You have been safely logged out for recovery.',
-        memory_cleanup: '🧹 High memory usage detected. Session cleared for optimal performance.',
-        inactivity: '⏰ You were automatically logged out due to inactivity.',
-        emergency_restart: '🚨 Emergency restart completed. Please sign in again.',
-        multiple_errors: '❌ Multiple errors detected. System has been reset for stability.',
-        circuit_breaker: '🔌 Too many failed requests. Please try again after a moment.',
-        error_recovery: '🔧 Recovered from application error. Please sign in to continue.',
-        emergency_reset: '🚨 Emergency reset completed. All cached data has been cleared.'
-      }
-      
-      const message = messages[reason as keyof typeof messages]
-      if (message) {
-        setRecoveryMessage(message)
-        // Clear the URL parameter
-        const newUrl = new URL(window.location.href)
-        newUrl.searchParams.delete('reason')
-        window.history.replaceState({}, '', newUrl.toString())
-      }
-    }
-  }, [searchParams])
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
-    setIsSigningIn(true)
+    setIsLoading(true)
 
     if (!email || !password) {
       setError('Please enter both email and password')
-      setIsSigningIn(false)
+      setIsLoading(false)
       return
     }
 
@@ -70,14 +41,13 @@ export default function SignInPage() {
         } else {
           setError(error.message)
         }
-        setIsSigningIn(false)
       } else {
-        // Success - navigation will be handled by auth state change
         navigate('/dashboard')
       }
     } catch (err) {
       setError('An unexpected error occurred. Please try again.')
-      setIsSigningIn(false)
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -85,25 +55,17 @@ export default function SignInPage() {
     e.preventDefault()
     setError('')
     setSuccess('')
-    setIsSigningUp(true)
+    setIsLoading(true)
 
     if (!email || !password || !fullName) {
       setError('Please fill in all fields')
-      setIsSigningUp(false)
+      setIsLoading(false)
       return
     }
 
     if (password.length < 6) {
       setError('Password must be at least 6 characters long')
-      setIsSigningUp(false)
-      return
-    }
-
-    // Basic email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    if (!emailRegex.test(email)) {
-      setError('Please enter a valid email address')
-      setIsSigningUp(false)
+      setIsLoading(false)
       return
     }
 
@@ -113,23 +75,19 @@ export default function SignInPage() {
       if (error) {
         if (error.message.includes('already registered')) {
           setError('An account with this email already exists. Please sign in instead.')
-        } else if (error.message.includes('rate limit')) {
-          setError('Too many signup attempts. Please wait a moment and try again.')
         } else {
           setError(error.message)
         }
-        setIsSigningUp(false)
       } else {
         setSuccess('Account created successfully! Please check your email to verify your account before signing in.')
-        // Clear form
         setEmail('')
         setPassword('')
         setFullName('')
-        setIsSigningUp(false)
       }
     } catch (err) {
       setError('An unexpected error occurred. Please try again.')
-      setIsSigningUp(false)
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -154,14 +112,6 @@ export default function SignInPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {recoveryMessage && (
-              <Alert className="mb-4 border-orange-200 bg-orange-50">
-                <AlertDescription className="text-orange-800">
-                  {recoveryMessage}
-                </AlertDescription>
-              </Alert>
-            )}
-            
             <Tabs defaultValue="signin" className="w-full">
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="signin">Sign In</TabsTrigger>
@@ -178,8 +128,7 @@ export default function SignInPage() {
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="Enter your email"
-                      disabled={isSigningIn}
-                      autoComplete="email"
+                      disabled={isLoading}
                     />
                   </div>
                   
@@ -191,8 +140,7 @@ export default function SignInPage() {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="Enter your password"
-                      disabled={isSigningIn}
-                      autoComplete="current-password"
+                      disabled={isLoading}
                     />
                   </div>
 
@@ -205,9 +153,9 @@ export default function SignInPage() {
                   <Button 
                     type="submit" 
                     className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
-                    disabled={isSigningIn}
+                    disabled={isLoading}
                   >
-                    {isSigningIn ? (
+                    {isLoading ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                         Signing In...
@@ -229,8 +177,7 @@ export default function SignInPage() {
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value)}
                       placeholder="Enter your full name"
-                      disabled={isSigningUp}
-                      autoComplete="name"
+                      disabled={isLoading}
                     />
                   </div>
                   
@@ -242,8 +189,7 @@ export default function SignInPage() {
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="Enter your email"
-                      disabled={isSigningUp}
-                      autoComplete="email"
+                      disabled={isLoading}
                     />
                   </div>
                   
@@ -255,8 +201,7 @@ export default function SignInPage() {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="Create a password (min 6 characters)"
-                      disabled={isSigningUp}
-                      autoComplete="new-password"
+                      disabled={isLoading}
                     />
                   </div>
 
@@ -276,9 +221,9 @@ export default function SignInPage() {
                   <Button 
                     type="submit" 
                     className="w-full bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700"
-                    disabled={isSigningUp}
+                    disabled={isLoading}
                   >
-                    {isSigningUp ? (
+                    {isLoading ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                         Creating Account...

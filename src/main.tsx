@@ -3,11 +3,8 @@ import ReactDOM from 'react-dom/client'
 import App from './App'
 import './index.css'
 
-// Clean, simple entry point with no double initialization
-const root = ReactDOM.createRoot(document.getElementById('root')!)
-
-root.render(
+ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <App />
-  </React.StrictMode>
-)
+  </React.StrictMode>,
+) 

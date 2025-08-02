@@ -3,9 +3,8 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { Toaster } from 'sonner'
 import { AuthProvider } from './contexts/AuthContext'
 import { useAuth } from './hooks/useAuth'
-import { usePerformanceMonitor } from './hooks/usePerformanceMonitor'
-
 import ErrorBoundary from './components/ErrorBoundary'
+import { SessionManager } from './components/SessionManager'
 import HomePage from './pages/HomePage'
 import JourneyPage from './pages/JourneyPage'
 import MentorsPage from './pages/MentorsPage'
@@ -15,6 +14,7 @@ import PortfolioTemplatesPage from './pages/PortfolioTemplatesPage'
 import AIAssistantPage from './pages/AIAssistantPage'
 import ResumeReviewPage from './pages/ResumeReviewPage'
 import ProspectingToolPage from './pages/ProspectingToolPage'
+
 import InterviewPrepPage from './pages/InterviewPrepPage'
 import MockInterviewPage from './pages/MockInterviewPage'
 import LinkedInStrategyPage from './pages/LinkedInStrategyPage'
@@ -32,10 +32,10 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600 text-lg">Loading...</p>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading...</p>
         </div>
       </div>
     )
@@ -51,11 +51,14 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 function AppContent() {
   const { user } = useAuth()
   
-  // Initialize performance monitoring to detect freezing/buffering
-  usePerformanceMonitor()
+  // Minimal initialization
+  React.useEffect(() => {
+    // Just ensure we have a clean start without aggressive cache clearing
+  }, [])
   
   return (
     <div className="min-h-screen bg-background">
+      <SessionManager />
       {user && <Navbar />}
       <Routes>
         <Route path="/signin" element={user ? <Navigate to="/dashboard" replace /> : <SignInPage />} />
@@ -156,17 +159,7 @@ function AppContent() {
         } />
         <Route path="*" element={<Navigate to={user ? "/dashboard" : "/signin"} replace />} />
       </Routes>
-      <Toaster 
-        position="top-right" 
-        toastOptions={{
-          duration: 4000,
-          style: {
-            background: 'white',
-            color: 'black',
-            border: '1px solid #e5e7eb'
-          }
-        }}
-      />
+      <Toaster position="top-right" />
     </div>
   )
 }

@@ -10,9 +10,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Progress } from "@/components/ui/progress"
-import { Plus, Briefcase, Users, Target, Edit, Trash2, Trophy, TrendingUp, Loader2, Award, RefreshCw } from "lucide-react"
+import { Plus, Briefcase, Calendar, MapPin, DollarSign, Trophy, TrendingUp, Users, Target, Edit, Trash2 } from "lucide-react"
 import { useAuth } from "@/hooks/useAuth"
-
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 
@@ -34,32 +33,20 @@ interface JobApplication {
 interface LeaderboardEntry {
   user_id: string
   user_email: string
-  full_name: string
   total_applications: number
   interviews: number
   offers: number
   success_rate: number
-}
-
-interface ProgressEntry {
-  user_id: string
-  user_email: string
-  full_name: string
-  completed_weeks: number
-  journey_completion: number
-  is_active: boolean
+  rank: number
 }
 
 export default function JobTrackerPage() {
   const { user } = useAuth()
   const [applications, setApplications] = useState<JobApplication[]>([])
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([])
-  const [progressLeaderboard, setProgressLeaderboard] = useState<ProgressEntry[]>([])
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [editingApplication, setEditingApplication] = useState<JobApplication | null>(null)
   const [loading, setLoading] = useState(true)
-  const [leaderboardLoading, setLeaderboardLoading] = useState(false)
-  const [progressLeaderboardLoading, setProgressLeaderboardLoading] = useState(false)
 
   const [formData, setFormData] = useState({
     company_name: '',
@@ -90,13 +77,11 @@ export default function JobTrackerPage() {
   }
 
   const fetchApplications = useCallback(async () => {
-    if (!user) return
-    
     try {
       const { data, error } = await supabase
         .from('job_applications')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('user_id', user?.id)
         .order('created_at', { ascending: false })
 
       if (error) throw error
@@ -109,92 +94,25 @@ export default function JobTrackerPage() {
     }
   }, [user])
 
-  const protectedFetchLeaderboard = useCallback(async () => {
-    const { data, error } = await supabase
-      .from('job_applications_leaderboard')
-      .select('*')
-
-    if (error) throw error
-    return data || []
-  }, [])
-
-  const fetchLeaderboard = useCallback(async () => {
+  const fetchLeaderboard = async () => {
     try {
-      setLeaderboardLoading(true)
-      const data = await protectedFetchLeaderboard()
-      setLeaderboard(data)
+      const { data, error } = await supabase
+        .from('job_applications_leaderboard')
+        .select('*')
+        .order('total_applications', { ascending: false })
+        .limit(10)
+
+      if (error) throw error
+      setLeaderboard(data || [])
     } catch (error) {
       console.error('Error fetching leaderboard:', error)
-      toast.error('Failed to load leaderboard')
-    } finally {
-      setLeaderboardLoading(false)
     }
-  }, [protectedFetchLeaderboard])
-
-  const protectedFetchProgressLeaderboard = useCallback(async () => {
-    // Get all users with their progress
-    const { data: usersData, error: usersError } = await supabase
-      .from('user_profiles')
-      .select('id, full_name, email')
-      .neq('role', 'deactivated')
-      .order('created_at', { ascending: false })
-      .limit(50)
-
-    if (usersError) throw usersError
-
-    // Get all completion data
-    const { data: completionsData, error: completionsError } = await supabase
-      .from('week_completions')
-      .select('user_id, week_number, completed')
-      .eq('completed', true)
-
-    if (completionsError) {
-      console.error('Error fetching completions:', completionsError)
-    }
-
-    // Create a map of user completions
-    const completionsMap = new Map<string, number>()
-    if (completionsData) {
-      completionsData.forEach(completion => {
-        const current = completionsMap.get(completion.user_id) || 0
-        completionsMap.set(completion.user_id, current + 1)
-      })
-    }
-
-    // Combine user data with completion data
-    const progressData = (usersData || []).map(user => {
-      const completedWeeks = completionsMap.get(user.id) || 0
-      const journeyCompletion = Math.round((completedWeeks / 8) * 100)
-
-      return {
-        user_id: user.id,
-        user_email: user.email || 'Anonymous',
-        full_name: user.full_name || 'Anonymous',
-        completed_weeks: completedWeeks,
-        journey_completion: journeyCompletion,
-        is_active: true
-      }
-    }).sort((a, b) => b.journey_completion - a.journey_completion || b.completed_weeks - a.completed_weeks)
-
-    return progressData
-  }, [])
-
-  const fetchProgressLeaderboard = useCallback(async () => {
-    try {
-      setProgressLeaderboardLoading(true)
-      const progressData = await protectedFetchProgressLeaderboard()
-      setProgressLeaderboard(progressData)
-    } catch (error) {
-      console.error('Error fetching progress leaderboard:', error)
-      toast.error('Failed to load progress leaderboard')
-    } finally {
-      setProgressLeaderboardLoading(false)
-    }
-  }, [protectedFetchProgressLeaderboard])
+  }
 
   useEffect(() => {
     if (user) {
       fetchApplications()
+      fetchLeaderboard()
     }
   }, [user, fetchApplications])
 
@@ -238,10 +156,7 @@ export default function JobTrackerPage() {
       setIsAddDialogOpen(false)
       setEditingApplication(null)
       fetchApplications()
-      // Only refresh leaderboard if it was previously loaded
-      if (leaderboard.length > 0) {
-        fetchLeaderboard()
-      }
+      fetchLeaderboard()
     } catch (error) {
       console.error('Error saving application:', error)
       toast.error('Failed to save application')
@@ -274,10 +189,7 @@ export default function JobTrackerPage() {
       if (error) throw error
       toast.success('Application deleted successfully!')
       fetchApplications()
-      // Only refresh leaderboard if it was previously loaded
-      if (leaderboard.length > 0) {
-        fetchLeaderboard()
-      }
+      fetchLeaderboard()
     } catch (error) {
       console.error('Error deleting application:', error)
       toast.error('Failed to delete application')
@@ -295,13 +207,12 @@ export default function JobTrackerPage() {
 
   const stats = getStats()
   const userRank = leaderboard.findIndex(entry => entry.user_id === user?.id) + 1
-  const userProgressRank = progressLeaderboard.findIndex(entry => entry.user_id === user?.id) + 1
 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-blue-600" />
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
           <p className="text-gray-600">Loading your job applications...</p>
         </div>
       </div>
@@ -493,18 +404,9 @@ export default function JobTrackerPage() {
 
         {/* Main Content */}
         <Tabs defaultValue="applications" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList>
             <TabsTrigger value="applications">My Applications</TabsTrigger>
-            <TabsTrigger value="leaderboard" onClick={() => {
-              if (leaderboard.length === 0) {
-                fetchLeaderboard()
-              }
-            }}>Job Search Leaderboard</TabsTrigger>
-            <TabsTrigger value="progress-leaderboard" onClick={() => {
-              if (progressLeaderboard.length === 0) {
-                fetchProgressLeaderboard()
-              }
-            }}>Progress Leaderboard</TabsTrigger>
+            <TabsTrigger value="leaderboard">Leaderboard</TabsTrigger>
           </TabsList>
 
           <TabsContent value="applications">
@@ -596,12 +498,7 @@ export default function JobTrackerPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {leaderboardLoading ? (
-                  <div className="text-center py-12">
-                    <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-blue-600" />
-                    <p className="text-gray-600">Loading leaderboard...</p>
-                  </div>
-                ) : leaderboard.length === 0 ? (
+                {leaderboard.length === 0 ? (
                   <div className="text-center py-12">
                     <TrendingUp className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                     <h3 className="text-lg font-medium text-gray-900 mb-2">No data yet</h3>
@@ -627,7 +524,7 @@ export default function JobTrackerPage() {
                           </div>
                           <div>
                             <p className="font-medium">
-                              {entry.user_id === user?.id ? 'You' : (entry.full_name !== 'Anonymous' ? entry.full_name : entry.user_email?.split('@')[0] || 'Anonymous')}
+                              {entry.user_id === user?.id ? 'You' : entry.user_email.split('@')[0]}
                             </p>
                             <p className="text-sm text-gray-600">
                               {entry.total_applications} applications • {entry.interviews} interviews • {entry.offers} offers
@@ -638,86 +535,6 @@ export default function JobTrackerPage() {
                           <p className="font-bold text-lg">{entry.success_rate}%</p>
                           <p className="text-sm text-gray-600">Success Rate</p>
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="progress-leaderboard">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Award className="h-5 w-5 text-purple-600" />
-                  Journey Progress Leaderboard
-                </CardTitle>
-                <CardDescription>
-                  Rankings based on 8-week journey completion progress
-                  {userProgressRank > 0 && (
-                    <span className="block mt-1 font-medium text-purple-600">
-                      Your current rank: #{userProgressRank}
-                    </span>
-                  )}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {progressLeaderboardLoading ? (
-                  <div className="text-center py-12">
-                    <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-purple-600" />
-                    <p className="text-gray-600">Loading progress leaderboard...</p>
-                  </div>
-                ) : progressLeaderboard.length === 0 ? (
-                  <div className="text-center py-12">
-                    <Target className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">No progress data yet</h3>
-                    <p className="text-gray-600">Start your journey to appear on the leaderboard!</p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {progressLeaderboard.slice(0, 20).map((entry, index) => (
-                      <div
-                        key={entry.user_id}
-                        className={`p-4 rounded-lg border transition-colors ${
-                          entry.user_id === user?.id ? 'bg-purple-50 border-purple-200' : 'bg-white hover:bg-gray-50'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between mb-3">
-                          <div className="flex items-center gap-4">
-                            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold ${
-                              index === 0 ? 'bg-yellow-100 text-yellow-800' :
-                              index === 1 ? 'bg-gray-100 text-gray-800' :
-                              index === 2 ? 'bg-orange-100 text-orange-800' :
-                              'bg-purple-100 text-purple-800'
-                            }`}>
-                              {index + 1}
-                            </div>
-                            <div>
-                              <p className="font-medium">
-                                {entry.user_id === user?.id ? 'You' : (entry.full_name !== 'Anonymous' ? entry.full_name : entry.user_email?.split('@')[0] || 'Anonymous')}
-                              </p>
-                              <p className="text-sm text-gray-600">
-                                {entry.completed_weeks}/8 weeks completed
-                              </p>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <p className="font-bold text-lg">{entry.journey_completion}%</p>
-                            <Badge variant={
-                              entry.journey_completion >= 100 ? 'default' :
-                              entry.journey_completion >= 75 ? 'secondary' :
-                              entry.journey_completion >= 50 ? 'outline' :
-                              'secondary'
-                            }>
-                              {entry.journey_completion >= 100 ? 'Graduate' :
-                               entry.journey_completion >= 75 ? 'Expert' :
-                               entry.journey_completion >= 50 ? 'Advanced' :
-                               entry.journey_completion >= 25 ? 'Intermediate' : 'Beginner'}
-                            </Badge>
-                          </div>
-                        </div>
-                        <Progress value={entry.journey_completion} className="h-2" />
                       </div>
                     ))}
                   </div>
