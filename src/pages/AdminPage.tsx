@@ -2,13 +2,11 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Users, Briefcase, Shield, Trash2, Edit, UserPlus, Loader2 } from "lucide-react"
+import { Progress } from "@/components/ui/progress"
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
+import { Users, Shield, Trash2, Loader2, UserX, CheckCircle } from "lucide-react"
 import { useAuth } from "@/hooks/useAuth"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
@@ -21,81 +19,65 @@ interface UserProfile {
   role: string
   created_at: string
   avatar_url?: string
-}
-
-interface JobApplication {
-  id: string
-  user_id: string
-  company_name: string
-  job_title: string
-  status: string
-  application_date: string
-  user_email: string
-  user_name: string
+  journey_completion: number
+  completed_weeks: number
+  is_active: boolean
 }
 
 export default function AdminPage() {
   const { user, userProfile } = useAuth()
   const [users, setUsers] = useState<UserProfile[]>([])
-  const [applications, setApplications] = useState<JobApplication[]>([])
   const [loading, setLoading] = useState(true)
-  const [isAddUserOpen, setIsAddUserOpen] = useState(false)
-  const [editingUser, setEditingUser] = useState<UserProfile | null>(null)
 
-  const [newUserData, setNewUserData] = useState({
-    email: '',
-    full_name: '',
-    role: 'user'
-  })
-
-  // Check if user is admin - moved after all hooks
+  // Check if user is admin
   const isAdmin = user && userProfile?.role === 'admin'
 
-  const fetchUsers = async () => {
+  const fetchUsersWithProgress = async () => {
     try {
-      const { data, error } = await supabase
+      // First get all users
+      const { data: usersData, error: usersError } = await supabase
         .from('user_profiles')
         .select('*')
         .order('created_at', { ascending: false })
 
-      if (error) throw error
-      setUsers(data || [])
+      if (usersError) throw usersError
+
+      // Then get completion data for each user
+      const usersWithProgress = await Promise.all(
+        (usersData || []).map(async (user) => {
+          const { data: completions, error: completionsError } = await supabase
+            .from('week_completions')
+            .select('week_number, completed')
+            .eq('user_id', user.id)
+            .eq('completed', true)
+
+          if (completionsError) {
+            console.error('Error fetching completions for user:', user.id, completionsError)
+          }
+
+          const completedWeeks = completions?.length || 0
+          const journeyCompletion = Math.round((completedWeeks / 8) * 100) // 8 weeks total
+
+          return {
+            ...user,
+            completed_weeks: completedWeeks,
+            journey_completion: journeyCompletion,
+            is_active: user.role !== 'deactivated'
+          }
+        })
+      )
+
+      setUsers(usersWithProgress)
     } catch (error) {
       console.error('Error fetching users:', error)
       toast.error('Failed to load users')
     }
   }
 
-  const fetchApplications = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('job_applications')
-        .select(`
-          *,
-          user_profiles!inner(email, full_name)
-        `)
-        .order('created_at', { ascending: false })
-        .limit(100)
-
-      if (error) throw error
-      
-      const formattedData = data?.map(app => ({
-        ...app,
-        user_email: app.user_profiles.email,
-        user_name: app.user_profiles.full_name || 'Anonymous'
-      })) || []
-      
-      setApplications(formattedData)
-    } catch (error) {
-      console.error('Error fetching applications:', error)
-      toast.error('Failed to load applications')
-    }
-  }
-
   useEffect(() => {
     const loadData = async () => {
       setLoading(true)
-      await Promise.all([fetchUsers(), fetchApplications()])
+      await fetchUsersWithProgress()
       setLoading(false)
     }
     loadData()
@@ -110,24 +92,48 @@ export default function AdminPage() {
 
       if (error) throw error
       toast.success('User role updated successfully!')
-      fetchUsers()
+      fetchUsersWithProgress()
     } catch (error) {
       console.error('Error updating user role:', error)
       toast.error('Failed to update user role')
     }
   }
 
-  const handleDeleteUser = async (userId: string) => {
-    if (!confirm('Are you sure you want to delete this user? This will also delete all their applications.')) return
-
+  const handleRevokeAccess = async (userId: string) => {
     try {
-      // Delete user's applications first
-      await supabase
-        .from('job_applications')
-        .delete()
-        .eq('user_id', userId)
+      const { error } = await supabase
+        .from('user_profiles')
+        .update({ role: 'deactivated' })
+        .eq('id', userId)
 
-      // Delete user's week completions
+      if (error) throw error
+      toast.success('User access revoked successfully!')
+      fetchUsersWithProgress()
+    } catch (error) {
+      console.error('Error revoking user access:', error)
+      toast.error('Failed to revoke user access')
+    }
+  }
+
+  const handleRestoreAccess = async (userId: string) => {
+    try {
+      const { error } = await supabase
+        .from('user_profiles')
+        .update({ role: 'user' })
+        .eq('id', userId)
+
+      if (error) throw error
+      toast.success('User access restored successfully!')
+      fetchUsersWithProgress()
+    } catch (error) {
+      console.error('Error restoring user access:', error)
+      toast.error('Failed to restore user access')
+    }
+  }
+
+  const handleDeleteUser = async (userId: string) => {
+    try {
+      // Delete user's week completions first
       await supabase
         .from('week_completions')
         .delete()
@@ -141,44 +147,23 @@ export default function AdminPage() {
 
       if (error) throw error
       toast.success('User deleted successfully!')
-      fetchUsers()
-      fetchApplications()
+      fetchUsersWithProgress()
     } catch (error) {
       console.error('Error deleting user:', error)
       toast.error('Failed to delete user')
     }
   }
 
-  const handleDeleteApplication = async (applicationId: string) => {
-    if (!confirm('Are you sure you want to delete this application?')) return
-
-    try {
-      const { error } = await supabase
-        .from('job_applications')
-        .delete()
-        .eq('id', applicationId)
-
-      if (error) throw error
-      toast.success('Application deleted successfully!')
-      fetchApplications()
-    } catch (error) {
-      console.error('Error deleting application:', error)
-      toast.error('Failed to delete application')
-    }
-  }
-
   const getStats = () => {
     const totalUsers = users.length
+    const activeUsers = users.filter(u => u.is_active).length
     const adminUsers = users.filter(u => u.role === 'admin').length
-    const totalApplications = applications.length
-    const recentApplications = applications.filter(app => {
-      const appDate = new Date(app.created_at)
-      const weekAgo = new Date()
-      weekAgo.setDate(weekAgo.getDate() - 7)
-      return appDate > weekAgo
-    }).length
+    const deactivatedUsers = users.filter(u => u.role === 'deactivated').length
+    const avgCompletion = users.length > 0 
+      ? Math.round(users.reduce((sum, u) => sum + u.journey_completion, 0) / users.length)
+      : 0
 
-    return { totalUsers, adminUsers, totalApplications, recentApplications }
+    return { totalUsers, activeUsers, adminUsers, deactivatedUsers, avgCompletion }
   }
 
   const stats = getStats()
@@ -210,13 +195,13 @@ export default function AdminPage() {
                 <Shield className="h-8 w-8 text-blue-600" />
                 Admin Dashboard
               </h1>
-              <p className="text-gray-600">Manage users and monitor platform activity</p>
+              <p className="text-gray-600">Manage users and monitor journey progress</p>
             </div>
           </div>
         </div>
 
         {/* Stats Cards */}
-        <div className="grid md:grid-cols-4 gap-6 mb-8">
+        <div className="grid md:grid-cols-5 gap-6 mb-8">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Users</CardTitle>
@@ -225,186 +210,195 @@ export default function AdminPage() {
             <CardContent>
               <div className="text-2xl font-bold">{stats.totalUsers}</div>
               <p className="text-xs text-muted-foreground">
-                {stats.adminUsers} admins
+                All registered users
               </p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Applications</CardTitle>
-              <Briefcase className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-medium">Active Users</CardTitle>
+              <CheckCircle className="h-4 w-4 text-green-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.totalApplications}</div>
+              <div className="text-2xl font-bold text-green-600">{stats.activeUsers}</div>
               <p className="text-xs text-muted-foreground">
-                All user applications
+                Users with access
               </p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Recent Activity</CardTitle>
-              <Briefcase className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-medium">Admins</CardTitle>
+              <Shield className="h-4 w-4 text-blue-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.recentApplications}</div>
+              <div className="text-2xl font-bold text-blue-600">{stats.adminUsers}</div>
               <p className="text-xs text-muted-foreground">
-                Applications this week
+                Admin users
               </p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Platform Health</CardTitle>
-              <Shield className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-medium">Deactivated</CardTitle>
+              <UserX className="h-4 w-4 text-red-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-600">Good</div>
+              <div className="text-2xl font-bold text-red-600">{stats.deactivatedUsers}</div>
               <p className="text-xs text-muted-foreground">
-                System operational
+                Revoked access
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Avg Progress</CardTitle>
+              <CheckCircle className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.avgCompletion}%</div>
+              <p className="text-xs text-muted-foreground">
+                Journey completion
               </p>
             </CardContent>
           </Card>
         </div>
 
-        {/* Main Content */}
-        <Tabs defaultValue="users" className="space-y-6">
-          <TabsList>
-            <TabsTrigger value="users">User Management</TabsTrigger>
-            <TabsTrigger value="applications">Applications</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="users">
-            <Card>
-              <CardHeader>
-                <CardTitle>User Management</CardTitle>
-                <CardDescription>
-                  Manage user accounts and permissions
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Name</TableHead>
-                        <TableHead>Email</TableHead>
-                        <TableHead>Role</TableHead>
-                        <TableHead>Joined</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {users.map((user) => (
-                        <TableRow key={user.id}>
-                          <TableCell className="font-medium">
-                            {user.full_name || 'Anonymous'}
-                          </TableCell>
-                          <TableCell>{user.email}</TableCell>
-                          <TableCell>
-                            <Badge variant={user.role === 'admin' ? 'default' : 'secondary'}>
-                              {user.role}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            {new Date(user.created_at).toLocaleDateString()}
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex gap-2">
-                              <Select
-                                value={user.role}
-                                onValueChange={(newRole) => handleUpdateUserRole(user.id, newRole)}
-                              >
-                                <SelectTrigger className="w-24">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="user">User</SelectItem>
-                                  <SelectItem value="admin">Admin</SelectItem>
-                                </SelectContent>
-                              </Select>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleDeleteUser(user.id)}
-                                disabled={user.id === userProfile?.id}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="applications">
-            <Card>
-              <CardHeader>
-                <CardTitle>Job Applications</CardTitle>
-                <CardDescription>
-                  Monitor all user job applications across the platform
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>User</TableHead>
-                        <TableHead>Company</TableHead>
-                        <TableHead>Position</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Applied Date</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {applications.map((app) => (
-                        <TableRow key={app.id}>
-                          <TableCell>
-                            <div>
-                              <p className="font-medium">{app.user_name}</p>
-                              <p className="text-sm text-gray-600">{app.user_email}</p>
-                            </div>
-                          </TableCell>
-                          <TableCell className="font-medium">{app.company_name}</TableCell>
-                          <TableCell>{app.job_title}</TableCell>
-                          <TableCell>
-                            <Badge variant={
-                              app.status === 'offer' ? 'default' :
-                              app.status === 'interview' ? 'secondary' :
-                              app.status === 'rejected' ? 'destructive' :
-                              'outline'
-                            }>
-                              {app.status}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            {new Date(app.application_date).toLocaleDateString()}
-                          </TableCell>
-                          <TableCell>
+        {/* User Management Table */}
+        <Card>
+          <CardHeader>
+            <CardTitle>User Management</CardTitle>
+            <CardDescription>
+              Manage user accounts, roles, and track journey progress
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>User</TableHead>
+                    <TableHead>Role</TableHead>
+                    <TableHead>Journey Progress</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Joined</TableHead>
+                    <TableHead>Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {users.map((user) => (
+                    <TableRow key={user.id}>
+                      <TableCell>
+                        <div>
+                          <p className="font-medium">{user.full_name || 'Anonymous'}</p>
+                          <p className="text-sm text-gray-600">{user.email}</p>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={
+                          user.role === 'admin' ? 'default' : 
+                          user.role === 'deactivated' ? 'destructive' : 
+                          'secondary'
+                        }>
+                          {user.role}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between text-sm">
+                            <span>{user.completed_weeks}/8 weeks</span>
+                            <span className="font-medium">{user.journey_completion}%</span>
+                          </div>
+                          <Progress value={user.journey_completion} className="h-2" />
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={user.is_active ? 'outline' : 'destructive'}>
+                          {user.is_active ? 'Active' : 'Deactivated'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {new Date(user.created_at).toLocaleDateString()}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex gap-2">
+                          {user.role !== 'deactivated' && (
+                            <Select
+                              value={user.role}
+                              onValueChange={(newRole) => handleUpdateUserRole(user.id, newRole)}
+                              disabled={user.id === userProfile?.id}
+                            >
+                              <SelectTrigger className="w-24">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="user">User</SelectItem>
+                                <SelectItem value="admin">Admin</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          )}
+                          
+                          {user.role === 'deactivated' ? (
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => handleDeleteApplication(app.id)}
+                              onClick={() => handleRestoreAccess(user.id)}
+                              className="text-green-600 hover:text-green-700"
                             >
-                              <Trash2 className="h-4 w-4" />
+                              <CheckCircle className="h-4 w-4" />
+                              Restore
                             </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+                          ) : (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleRevokeAccess(user.id)}
+                              disabled={user.id === userProfile?.id}
+                              className="text-orange-600 hover:text-orange-700"
+                            >
+                              <UserX className="h-4 w-4" />
+                              Revoke
+                            </Button>
+                          )}
+                          
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={user.id === userProfile?.id}
+                                className="text-red-600 hover:text-red-700"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Delete User</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Are you sure you want to permanently delete this user? This will remove all their data including journey progress. This action cannot be undone.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() => handleDeleteUser(user.id)}
+                                  className="bg-red-600 hover:bg-red-700"
+                                >
+                                  Delete User
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   )
