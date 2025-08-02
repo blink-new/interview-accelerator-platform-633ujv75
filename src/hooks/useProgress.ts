@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from './useAuth'
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
@@ -16,22 +16,32 @@ export const useProgress = () => {
     overallProgress: 0,
     isLoading: true
   })
+  
+  // Use ref to prevent infinite loops and track state
+  const loadingRef = useRef(false)
+  const subscriptionRef = useRef<any>(null)
+  const userIdRef = useRef<string | null>(null)
 
   const loadProgress = useCallback(async () => {
-    if (!user) {
-      setProgressData({
-        completedWeeks: [],
-        overallProgress: 0,
-        isLoading: false
-      })
+    const currentUserId = user?.id
+    if (!currentUserId || loadingRef.current) {
+      if (!currentUserId) {
+        setProgressData({
+          completedWeeks: [],
+          overallProgress: 0,
+          isLoading: false
+        })
+      }
       return
     }
+
+    loadingRef.current = true
 
     try {
       const { data: completions, error } = await supabase
         .from('week_completions')
         .select('week_number')
-        .eq('user_id', user.id)
+        .eq('user_id', currentUserId)
         .eq('completed', true)
 
       if (error) {
@@ -54,17 +64,20 @@ export const useProgress = () => {
         overallProgress: 0,
         isLoading: false
       })
+    } finally {
+      loadingRef.current = false
     }
   }, [user])
 
   const markWeekComplete = useCallback(async (weekNumber: number) => {
-    if (!user) return false
+    const currentUserId = user?.id
+    if (!currentUserId) return false
 
     try {
       const { error } = await supabase
         .from('week_completions')
         .upsert({
-          user_id: user.id,
+          user_id: currentUserId,
           week_number: weekNumber,
           completed: true,
           completed_at: new Date().toISOString()
@@ -85,34 +98,60 @@ export const useProgress = () => {
 
   // Set up real-time subscription for progress changes
   useEffect(() => {
-    if (!user) return
+    const currentUserId = user?.id
+    
+    // Clean up existing subscription if user changed
+    if (subscriptionRef.current && userIdRef.current !== currentUserId) {
+      subscriptionRef.current.unsubscribe()
+      subscriptionRef.current = null
+    }
 
-    const subscription = supabase
-      .channel('week_completions_changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'week_completions',
-          filter: `user_id=eq.${user.id}`
-        },
-        () => {
-          // Reload progress when changes occur
-          loadProgress()
-        }
-      )
-      .subscribe()
+    if (!currentUserId) {
+      userIdRef.current = null
+      return
+    }
+
+    // Only create new subscription if we don't have one for this user
+    if (!subscriptionRef.current) {
+      userIdRef.current = currentUserId
+      
+      subscriptionRef.current = supabase
+        .channel(`week_completions_${currentUserId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'week_completions',
+            filter: `user_id=eq.${currentUserId}`
+          },
+          () => {
+            // Debounce the reload to prevent excessive calls
+            setTimeout(() => {
+              if (!loadingRef.current) {
+                loadProgress()
+              }
+            }, 500)
+          }
+        )
+        .subscribe()
+    }
 
     return () => {
-      subscription.unsubscribe()
+      if (subscriptionRef.current) {
+        subscriptionRef.current.unsubscribe()
+        subscriptionRef.current = null
+      }
+      userIdRef.current = null
     }
-  }, [user, loadProgress])
+  }, [user?.id, loadProgress])
 
-  // Initial load
+  // Initial load - only when user changes
   useEffect(() => {
-    loadProgress()
-  }, [loadProgress])
+    if (user?.id !== userIdRef.current) {
+      loadProgress()
+    }
+  }, [user?.id, loadProgress])
 
   return {
     ...progressData,

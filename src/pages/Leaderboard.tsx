@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -34,22 +34,35 @@ export default function Leaderboard() {
   const [progressLeaderboard, setProgressLeaderboard] = useState<ProgressEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  
+  // Use refs to prevent excessive re-renders
+  const subscriptionsRef = useRef<any[]>([])
+  const loadingRef = useRef(false)
+  const mountedRef = useRef(true)
 
   const fetchJobLeaderboard = useCallback(async () => {
+    if (loadingRef.current || !mountedRef.current) return
+    
     try {
       const { data, error } = await supabase
         .from('job_applications_leaderboard')
         .select('*')
 
       if (error) throw error
-      setJobLeaderboard(data || [])
+      if (mountedRef.current) {
+        setJobLeaderboard(data || [])
+      }
     } catch (error) {
       console.error('Error fetching job leaderboard:', error)
-      toast.error('Failed to load job leaderboard')
+      if (mountedRef.current) {
+        toast.error('Failed to load job leaderboard')
+      }
     }
   }, [])
 
   const fetchProgressLeaderboard = useCallback(async () => {
+    if (loadingRef.current || !mountedRef.current) return
+    
     try {
       // Get all users with their progress
       const { data: usersData, error: usersError } = await supabase
@@ -57,6 +70,7 @@ export default function Leaderboard() {
         .select('id, full_name, email')
         .neq('role', 'deactivated')
         .order('created_at', { ascending: false })
+        .limit(50) // Limit to prevent excessive data loading
 
       if (usersError) throw usersError
 
@@ -94,34 +108,68 @@ export default function Leaderboard() {
         }
       }).sort((a, b) => b.journey_completion - a.journey_completion || b.completed_weeks - a.completed_weeks)
 
-      setProgressLeaderboard(progressData)
+      if (mountedRef.current) {
+        setProgressLeaderboard(progressData)
+      }
     } catch (error) {
       console.error('Error fetching progress leaderboard:', error)
-      toast.error('Failed to load progress leaderboard')
+      if (mountedRef.current) {
+        toast.error('Failed to load progress leaderboard')
+      }
     }
   }, [])
 
-  const fetchAllData = useCallback(async () => {
-    setLoading(true)
-    await Promise.all([fetchJobLeaderboard(), fetchProgressLeaderboard()])
-    setLoading(false)
-  }, [fetchJobLeaderboard, fetchProgressLeaderboard])
-
   const handleRefresh = async () => {
+    if (refreshing || loadingRef.current) return
+    
     setRefreshing(true)
-    await fetchAllData()
-    setRefreshing(false)
-    toast.success('Leaderboards refreshed!')
+    loadingRef.current = true
+    
+    try {
+      await Promise.all([fetchJobLeaderboard(), fetchProgressLeaderboard()])
+      if (mountedRef.current) {
+        toast.success('Leaderboards refreshed!')
+      }
+    } finally {
+      if (mountedRef.current) {
+        setRefreshing(false)
+      }
+      loadingRef.current = false
+    }
   }
 
+  // Initial data load
   useEffect(() => {
-    fetchAllData()
-  }, [fetchAllData])
+    const loadInitialData = async () => {
+      if (!mountedRef.current) return
+      
+      loadingRef.current = true
+      setLoading(true)
+      
+      try {
+        await Promise.all([fetchJobLeaderboard(), fetchProgressLeaderboard()])
+      } finally {
+        if (mountedRef.current) {
+          setLoading(false)
+        }
+        loadingRef.current = false
+      }
+    }
 
-  // Set up real-time subscriptions
+    loadInitialData()
+  }, [fetchJobLeaderboard, fetchProgressLeaderboard])
+
+  // Set up real-time subscriptions with cleanup
   useEffect(() => {
+    if (!mountedRef.current) return
+
+    // Clean up existing subscriptions
+    subscriptionsRef.current.forEach(sub => sub?.unsubscribe())
+    subscriptionsRef.current = []
+
+    // Set up new subscriptions with debouncing
     const jobApplicationsSubscription = supabase
-      .channel('job_applications_changes')
+      .channel('job_applications_changes_leaderboard')
       .on(
         'postgres_changes',
         {
@@ -130,13 +178,18 @@ export default function Leaderboard() {
           table: 'job_applications'
         },
         () => {
-          fetchJobLeaderboard()
+          // Debounce updates
+          setTimeout(() => {
+            if (!loadingRef.current && mountedRef.current) {
+              fetchJobLeaderboard()
+            }
+          }, 2000)
         }
       )
       .subscribe()
 
     const weekCompletionsSubscription = supabase
-      .channel('week_completions_changes')
+      .channel('week_completions_changes_leaderboard')
       .on(
         'postgres_changes',
         {
@@ -145,16 +198,31 @@ export default function Leaderboard() {
           table: 'week_completions'
         },
         () => {
-          fetchProgressLeaderboard()
+          // Debounce updates
+          setTimeout(() => {
+            if (!loadingRef.current && mountedRef.current) {
+              fetchProgressLeaderboard()
+            }
+          }, 2000)
         }
       )
       .subscribe()
 
+    subscriptionsRef.current = [jobApplicationsSubscription, weekCompletionsSubscription]
+
     return () => {
-      jobApplicationsSubscription.unsubscribe()
-      weekCompletionsSubscription.unsubscribe()
+      subscriptionsRef.current.forEach(sub => sub?.unsubscribe())
+      subscriptionsRef.current = []
     }
   }, [fetchJobLeaderboard, fetchProgressLeaderboard])
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false
+      subscriptionsRef.current.forEach(sub => sub?.unsubscribe())
+    }
+  }, [])
 
   const userJobRank = jobLeaderboard.findIndex(entry => entry.user_id === user?.id) + 1
   const userProgressRank = progressLeaderboard.findIndex(entry => entry.user_id === user?.id) + 1
@@ -283,7 +351,7 @@ export default function Leaderboard() {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {jobLeaderboard.map((entry, index) => (
+                    {jobLeaderboard.slice(0, 20).map((entry, index) => (
                       <div
                         key={entry.user_id}
                         className={`flex items-center justify-between p-4 rounded-lg border transition-colors ${
@@ -347,7 +415,7 @@ export default function Leaderboard() {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {progressLeaderboard.map((entry, index) => (
+                    {progressLeaderboard.slice(0, 20).map((entry, index) => (
                       <div
                         key={entry.user_id}
                         className={`p-4 rounded-lg border transition-colors ${

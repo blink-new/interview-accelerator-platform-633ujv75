@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from "react"
+import { useState, useMemo, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -18,8 +18,6 @@ import {
 import { useNavigate } from "react-router-dom"
 import { useAuth } from "@/hooks/useAuth"
 import { useProgress } from "@/hooks/useProgress"
-import { supabase } from "@/lib/supabase"
-import { toast } from "sonner"
 
 interface WeekProgram {
   week: number
@@ -35,6 +33,7 @@ export default function DashboardPage() {
   const { completedWeeks, overallProgress, isLoading, markWeekComplete } = useProgress()
   const [showAllWeeks, setShowAllWeeks] = useState(false)
 
+  // Memoize the weekly program to prevent unnecessary re-renders
   const weeklyProgram: WeekProgram[] = useMemo(() => [
     { 
       week: 1, 
@@ -94,12 +93,12 @@ export default function DashboardPage() {
     }
   ], [])
 
-
-
+  // Memoize the updated weekly program to prevent recalculation on every render
   const updatedWeeklyProgram = useMemo(() => {
+    const currentWeek = completedWeeks.length + 1
+    
     return weeklyProgram.map(week => {
       const isCompleted = completedWeeks.includes(week.week)
-      const currentWeek = completedWeeks.length + 1
       
       return {
         ...week,
@@ -109,8 +108,54 @@ export default function DashboardPage() {
     })
   }, [weeklyProgram, completedWeeks])
 
+  // Memoize calculated values
   const currentWeek = useMemo(() => completedWeeks.length + 1, [completedWeeks])
   const totalWeeks = useMemo(() => weeklyProgram.length, [weeklyProgram])
+  const displayName = useMemo(() => 
+    userProfile?.full_name || user?.email?.split('@')[0] || 'there'
+  , [userProfile?.full_name, user?.email])
+
+  // Memoize the achievement level calculation
+  const achievementLevel = useMemo(() => {
+    if (overallProgress >= 100) return 'Graduate!'
+    if (overallProgress >= 75) return 'Expert'
+    if (overallProgress >= 50) return 'Advanced'
+    if (overallProgress >= 25) return 'Intermediate'
+    return 'Beginner'
+  }, [overallProgress])
+
+  // Memoize the current week title
+  const currentWeekTitle = useMemo(() => {
+    if (currentWeek <= totalWeeks) {
+      return weeklyProgram[currentWeek - 1]?.title
+    }
+    return 'Program finished'
+  }, [currentWeek, totalWeeks, weeklyProgram])
+
+  // Memoize callback functions to prevent re-renders
+  const handleMarkWeekComplete = useCallback((weekNumber: number) => {
+    markWeekComplete(weekNumber)
+  }, [markWeekComplete])
+
+  const handleNavigateToJourney = useCallback(() => {
+    navigate('/journey')
+  }, [navigate])
+
+  const handleNavigateToResumeReview = useCallback(() => {
+    navigate('/resume-review')
+  }, [navigate])
+
+  const handleNavigateToMockInterviews = useCallback(() => {
+    navigate('/mock-interviews')
+  }, [navigate])
+
+  const handleOpenMentorCalendar = useCallback(() => {
+    window.open('https://calendly.com/mentorque-edu/30min?month=2025-08', '_blank')
+  }, [])
+
+  const toggleShowAllWeeks = useCallback(() => {
+    setShowAllWeeks(prev => !prev)
+  }, [])
 
   if (isLoading) {
     return (
@@ -129,7 +174,7 @@ export default function DashboardPage() {
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            Welcome back, {userProfile?.full_name || user?.email?.split('@')[0] || 'there'}! 👋
+            Welcome back, {displayName}! 👋
           </h1>
           <p className="text-gray-600">Track your progress through the 8-week interview acceleration program</p>
         </div>
@@ -180,10 +225,7 @@ export default function DashboardPage() {
                     {currentWeek <= totalWeeks ? `Week ${currentWeek}` : 'Complete!'}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {currentWeek <= totalWeeks 
-                      ? weeklyProgram[currentWeek - 1]?.title 
-                      : 'Program finished'
-                    }
+                    {currentWeekTitle}
                   </p>
                 </CardContent>
               </Card>
@@ -194,12 +236,7 @@ export default function DashboardPage() {
                   <Award className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-lg font-bold">
-                    {overallProgress >= 100 ? 'Graduate!' : 
-                     overallProgress >= 75 ? 'Expert' :
-                     overallProgress >= 50 ? 'Advanced' :
-                     overallProgress >= 25 ? 'Intermediate' : 'Beginner'}
-                  </div>
+                  <div className="text-lg font-bold">{achievementLevel}</div>
                   <p className="text-xs text-muted-foreground">Current level</p>
                 </CardContent>
               </Card>
@@ -252,7 +289,7 @@ export default function DashboardPage() {
                           </div>
                         </div>
                         {week.current && (
-                          <Button size="sm" onClick={() => navigate('/journey')}>
+                          <Button size="sm" onClick={handleNavigateToJourney}>
                             Continue
                           </Button>
                         )}
@@ -263,7 +300,7 @@ export default function DashboardPage() {
                 
                 {updatedWeeklyProgram.length > 4 && (
                   <div className="mt-4 text-center">
-                    <Button variant="outline" onClick={() => setShowAllWeeks(!showAllWeeks)}>
+                    <Button variant="outline" onClick={toggleShowAllWeeks}>
                       {showAllWeeks ? 'Show Less' : 'Show All Weeks'}
                     </Button>
                   </div>
@@ -324,7 +361,7 @@ export default function DashboardPage() {
                         {week.current && !week.completed && (
                           <Button 
                             size="sm" 
-                            onClick={() => markWeekComplete(week.week)}
+                            onClick={() => handleMarkWeekComplete(week.week)}
                             className="bg-blue-600 hover:bg-blue-700"
                           >
                             Mark Week Complete
@@ -351,7 +388,7 @@ export default function DashboardPage() {
           {/* Resources Tab */}
           <TabsContent value="resources" className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              <Card className="cursor-pointer hover:shadow-lg transition-shadow" onClick={() => navigate('/resume-review')}>
+              <Card className="cursor-pointer hover:shadow-lg transition-shadow" onClick={handleNavigateToResumeReview}>
                 <CardHeader>
                   <CardTitle className="flex items-center space-x-2">
                     <Target className="h-5 w-5 text-blue-600" />
@@ -366,7 +403,7 @@ export default function DashboardPage() {
                 </CardContent>
               </Card>
 
-              <Card className="cursor-pointer hover:shadow-lg transition-shadow" onClick={() => navigate('/mock-interviews')}>
+              <Card className="cursor-pointer hover:shadow-lg transition-shadow" onClick={handleNavigateToMockInterviews}>
                 <CardHeader>
                   <CardTitle className="flex items-center space-x-2">
                     <Users className="h-5 w-5 text-green-600" />
@@ -393,7 +430,7 @@ export default function DashboardPage() {
                   <Button 
                     variant="outline" 
                     className="w-full"
-                    onClick={() => window.open('https://calendly.com/mentorque-edu/30min?month=2025-08', '_blank')}
+                    onClick={handleOpenMentorCalendar}
                   >
                     Book a Call with Mentor
                   </Button>
