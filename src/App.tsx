@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { Toaster } from 'sonner'
 import { AuthProvider } from './contexts/AuthContext'
 import { useAuth } from './hooks/useAuth'
+import { usePerformanceMonitor } from './hooks/usePerformanceMonitor'
 
 import ErrorBoundary from './components/ErrorBoundary'
 import HomePage from './pages/HomePage'
@@ -49,6 +50,9 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 function AppContent() {
   const { user } = useAuth()
+  
+  // Initialize performance monitoring to detect freezing/buffering
+  usePerformanceMonitor()
   
   return (
     <div className="min-h-screen bg-background">

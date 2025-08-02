@@ -28,114 +28,107 @@ interface WeekProgram {
   current: boolean
 }
 
+// Static weekly program data - moved outside component to prevent recreation
+const WEEKLY_PROGRAM_DATA: Omit<WeekProgram, 'completed' | 'current'>[] = [
+  { 
+    week: 1, 
+    title: "Foundation & Self-Assessment", 
+    description: "Introduction to interview preparation, skills assessment, goal setting"
+  },
+  { 
+    week: 2, 
+    title: "Portfolio Development", 
+    description: "Build a stunning portfolio that showcases your skills and projects"
+  },
+  { 
+    week: 3, 
+    title: "AI Assistants & Final Resume Review", 
+    description: "Get your personal AI assistant and complete final resume optimization"
+  },
+  { 
+    week: 4, 
+    title: "Interview Cheat Sheet", 
+    description: "Create personalized cheatsheets with mentor guidance for interview success"
+  },
+  { 
+    week: 5, 
+    title: "LinkedIn Outreach & Networking", 
+    description: "Master LinkedIn optimization and professional networking strategies"
+  },
+  { 
+    week: 6, 
+    title: "Prospecting Tool & HR Connections", 
+    description: "Use advanced tools to extract HR details and get more referrals"
+  },
+  { 
+    week: 7, 
+    title: "Mock Interview Practice", 
+    description: "Video practice sessions, peer review system, feedback integration"
+  },
+  { 
+    week: 8, 
+    title: "Final Preparations & Follow-up", 
+    description: "Interview day preparation, post-interview strategies, offer evaluation"
+  }
+]
+
 const DashboardPage = React.memo(() => {
   const navigate = useNavigate()
   const { user, userProfile } = useAuth()
   const { completedWeeks, overallProgress, isLoading, markWeekComplete } = useProgress()
   const [showAllWeeks, setShowAllWeeks] = useState(false)
 
-  // Memoize the weekly program to prevent unnecessary re-renders
-  const weeklyProgram: WeekProgram[] = useMemo(() => [
-    { 
-      week: 1, 
-      title: "Foundation & Self-Assessment", 
-      description: "Introduction to interview preparation, skills assessment, goal setting",
-      completed: false, 
-      current: false
-    },
-    { 
-      week: 2, 
-      title: "Portfolio Development", 
-      description: "Build a stunning portfolio that showcases your skills and projects",
-      completed: false, 
-      current: false
-    },
-    { 
-      week: 3, 
-      title: "AI Assistants & Final Resume Review", 
-      description: "Get your personal AI assistant and complete final resume optimization",
-      completed: false, 
-      current: false
-    },
-    { 
-      week: 4, 
-      title: "Interview Cheat Sheet", 
-      description: "Create personalized cheatsheets with mentor guidance for interview success",
-      completed: false, 
-      current: false
-    },
-    { 
-      week: 5, 
-      title: "LinkedIn Outreach & Networking", 
-      description: "Master LinkedIn optimization and professional networking strategies",
-      completed: false, 
-      current: false
-    },
-    { 
-      week: 6, 
-      title: "Prospecting Tool & HR Connections", 
-      description: "Use advanced tools to extract HR details and get more referrals",
-      completed: false, 
-      current: false
-    },
-    { 
-      week: 7, 
-      title: "Mock Interview Practice", 
-      description: "Video practice sessions, peer review system, feedback integration",
-      completed: false, 
-      current: false
-    },
-    { 
-      week: 8, 
-      title: "Final Preparations & Follow-up", 
-      description: "Interview day preparation, post-interview strategies, offer evaluation",
-      completed: false, 
-      current: false
-    }
-  ], [])
+  // Memoize calculated values with stable dependencies
+  const currentWeek = useMemo(() => {
+    if (!Array.isArray(completedWeeks)) return 1
+    return completedWeeks.length + 1
+  }, [completedWeeks])
 
-  // Memoize the updated weekly program to prevent recalculation on every render
-  const updatedWeeklyProgram = useMemo(() => {
-    const currentWeek = completedWeeks.length + 1
+  const totalWeeks = WEEKLY_PROGRAM_DATA.length
+
+  const displayName = useMemo(() => {
+    return userProfile?.full_name || user?.email?.split('@')[0] || 'there'
+  }, [userProfile?.full_name, user?.email])
+
+  // Memoize the weekly program with completion status
+  const weeklyProgram = useMemo(() => {
+    if (!Array.isArray(completedWeeks)) return []
     
-    return weeklyProgram.map(week => {
+    return WEEKLY_PROGRAM_DATA.map(week => {
       const isCompleted = completedWeeks.includes(week.week)
+      const isCurrent = week.week === currentWeek && !isCompleted
       
       return {
         ...week,
         completed: isCompleted,
-        current: week.week === currentWeek && !isCompleted
+        current: isCurrent
       }
     })
-  }, [weeklyProgram, completedWeeks])
-
-  // Memoize calculated values
-  const currentWeek = useMemo(() => completedWeeks.length + 1, [completedWeeks])
-  const totalWeeks = useMemo(() => weeklyProgram.length, [weeklyProgram])
-  const displayName = useMemo(() => 
-    userProfile?.full_name || user?.email?.split('@')[0] || 'there'
-  , [userProfile?.full_name, user?.email])
+  }, [completedWeeks, currentWeek])
 
   // Memoize the achievement level calculation
   const achievementLevel = useMemo(() => {
-    if (overallProgress >= 100) return 'Graduate!'
-    if (overallProgress >= 75) return 'Expert'
-    if (overallProgress >= 50) return 'Advanced'
-    if (overallProgress >= 25) return 'Intermediate'
+    const progress = overallProgress || 0
+    if (progress >= 100) return 'Graduate!'
+    if (progress >= 75) return 'Expert'
+    if (progress >= 50) return 'Advanced'
+    if (progress >= 25) return 'Intermediate'
     return 'Beginner'
   }, [overallProgress])
 
   // Memoize the current week title
   const currentWeekTitle = useMemo(() => {
-    if (currentWeek <= totalWeeks) {
-      return weeklyProgram[currentWeek - 1]?.title
+    if (currentWeek <= totalWeeks && weeklyProgram.length > 0) {
+      return weeklyProgram[currentWeek - 1]?.title || 'Loading...'
     }
     return 'Program finished'
   }, [currentWeek, totalWeeks, weeklyProgram])
 
-  // Optimized event handlers with useCallback
+  // Stable event handlers
   const handleMarkWeekComplete = useCallback((weekNumber: number) => {
-    markWeekComplete(weekNumber)
+    if (typeof markWeekComplete === 'function') {
+      markWeekComplete(weekNumber)
+    }
   }, [markWeekComplete])
 
   const handleNavigateToJourney = useCallback(() => {
@@ -169,6 +162,10 @@ const DashboardPage = React.memo(() => {
     )
   }
 
+  const weeksToShow = showAllWeeks ? weeklyProgram : weeklyProgram.slice(0, 4)
+  const safeOverallProgress = overallProgress || 0
+  const safeCompletedWeeks = Array.isArray(completedWeeks) ? completedWeeks : []
+
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-7xl mx-auto px-4">
@@ -196,7 +193,7 @@ const DashboardPage = React.memo(() => {
                   <Target className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{Math.round(overallProgress)}%</div>
+                  <div className="text-2xl font-bold">{Math.round(safeOverallProgress)}%</div>
                   <p className="text-xs text-muted-foreground">
                     Week {currentWeek} of {totalWeeks}
                   </p>
@@ -209,9 +206,9 @@ const DashboardPage = React.memo(() => {
                   <CheckCircle className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{completedWeeks.length}</div>
+                  <div className="text-2xl font-bold">{safeCompletedWeeks.length}</div>
                   <p className="text-xs text-muted-foreground">
-                    {totalWeeks - completedWeeks.length} weeks remaining
+                    {totalWeeks - safeCompletedWeeks.length} weeks remaining
                   </p>
                 </CardContent>
               </Card>
@@ -254,14 +251,14 @@ const DashboardPage = React.memo(() => {
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-medium">Overall Progress</span>
                     <span className="text-sm text-gray-600">
-                      {completedWeeks.length} of {totalWeeks} weeks completed
+                      {safeCompletedWeeks.length} of {totalWeeks} weeks completed
                     </span>
                   </div>
-                  <Progress value={overallProgress} className="h-3" />
+                  <Progress value={safeOverallProgress} className="h-3" />
                 </div>
                 
                 <div className="grid gap-3 mt-8">
-                  {(showAllWeeks ? updatedWeeklyProgram : updatedWeeklyProgram.slice(0, 4)).map((week) => (
+                  {weeksToShow.map((week) => (
                     <div 
                       key={week.week} 
                       className={`p-4 border rounded-lg transition-all duration-200 hover:shadow-md ${
@@ -299,7 +296,7 @@ const DashboardPage = React.memo(() => {
                   ))}
                 </div>
                 
-                {updatedWeeklyProgram.length > 4 && (
+                {weeklyProgram.length > 4 && (
                   <div className="mt-4 text-center">
                     <Button variant="outline" onClick={toggleShowAllWeeks}>
                       {showAllWeeks ? 'Show Less' : 'Show All Weeks'}
@@ -319,7 +316,7 @@ const DashboardPage = React.memo(() => {
               </CardHeader>
               <CardContent>
                 <div className="grid gap-4">
-                  {updatedWeeklyProgram.map((week) => (
+                  {weeklyProgram.map((week) => (
                     <div 
                       key={week.week} 
                       className={`p-6 border rounded-lg transition-all duration-200 hover:shadow-md ${

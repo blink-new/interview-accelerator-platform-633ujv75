@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react"
+import React, { useState, useEffect, useCallback, useRef } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -6,7 +6,6 @@ import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Trophy, Users, Target, TrendingUp, Loader2, RefreshCw, Award, Briefcase } from "lucide-react"
 import { useAuth } from "@/hooks/useAuth"
-
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 
@@ -29,36 +28,29 @@ interface ProgressEntry {
   is_active: boolean
 }
 
-export default function Leaderboard() {
+const Leaderboard = React.memo(() => {
   const { user } = useAuth()
   const [jobLeaderboard, setJobLeaderboard] = useState<LeaderboardEntry[]>([])
   const [progressLeaderboard, setProgressLeaderboard] = useState<ProgressEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   
-  // Use refs to prevent excessive re-renders
-  const subscriptionsRef = useRef<any[]>([])
-  const loadingRef = useRef(false)
   const mountedRef = useRef(true)
-  const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-
-  // Direct database calls
-  const protectedFetchJobLeaderboard = useCallback(async () => {
-    const { data, error } = await supabase
-      .from('job_applications_leaderboard')
-      .select('*')
-
-    if (error) throw error
-    return data || []
-  }, [])
+  const loadingRef = useRef(false)
 
   const fetchJobLeaderboard = useCallback(async () => {
     if (loadingRef.current || !mountedRef.current) return
     
     try {
-      const data = await protectedFetchJobLeaderboard()
+      const { data, error } = await supabase
+        .from('job_applications_leaderboard')
+        .select('*')
+        .limit(20)
+
+      if (error) throw error
+      
       if (mountedRef.current) {
-        setJobLeaderboard(data)
+        setJobLeaderboard(data || [])
       }
     } catch (error) {
       console.error('Error fetching job leaderboard:', error)
@@ -66,61 +58,55 @@ export default function Leaderboard() {
         toast.error('Failed to load job leaderboard')
       }
     }
-  }, [protectedFetchJobLeaderboard])
-
-  const protectedFetchProgressLeaderboard = useCallback(async () => {
-    // Get all users with their progress
-    const { data: usersData, error: usersError } = await supabase
-      .from('user_profiles')
-      .select('id, full_name, email')
-      .neq('role', 'deactivated')
-      .order('created_at', { ascending: false })
-      .limit(50) // Limit to prevent excessive data loading
-
-    if (usersError) throw usersError
-
-    // Get all completion data
-    const { data: completionsData, error: completionsError } = await supabase
-      .from('week_completions')
-      .select('user_id, week_number, completed')
-      .eq('completed', true)
-
-    if (completionsError) {
-      console.error('Error fetching completions:', completionsError)
-    }
-
-    // Create a map of user completions
-    const completionsMap = new Map<string, number>()
-    if (completionsData) {
-      completionsData.forEach(completion => {
-        const current = completionsMap.get(completion.user_id) || 0
-        completionsMap.set(completion.user_id, current + 1)
-      })
-    }
-
-    // Combine user data with completion data
-    const progressData = (usersData || []).map(user => {
-      const completedWeeks = completionsMap.get(user.id) || 0
-      const journeyCompletion = Math.round((completedWeeks / 8) * 100)
-
-      return {
-        user_id: user.id,
-        user_email: user.email || 'Anonymous',
-        full_name: user.full_name || 'Anonymous',
-        completed_weeks: completedWeeks,
-        journey_completion: journeyCompletion,
-        is_active: true
-      }
-    }).sort((a, b) => b.journey_completion - a.journey_completion || b.completed_weeks - a.completed_weeks)
-
-    return progressData
   }, [])
 
   const fetchProgressLeaderboard = useCallback(async () => {
     if (loadingRef.current || !mountedRef.current) return
     
     try {
-      const progressData = await protectedFetchProgressLeaderboard()
+      // Get users with their progress
+      const { data: usersData, error: usersError } = await supabase
+        .from('user_profiles')
+        .select('id, full_name, email')
+        .neq('role', 'deactivated')
+        .order('created_at', { ascending: false })
+        .limit(50)
+
+      if (usersError) throw usersError
+
+      // Get completion data
+      const { data: completionsData, error: completionsError } = await supabase
+        .from('week_completions')
+        .select('user_id, week_number, completed')
+        .eq('completed', true)
+
+      if (completionsError) {
+        console.error('Error fetching completions:', completionsError)
+      }
+
+      // Process data
+      const completionsMap = new Map<string, number>()
+      if (completionsData) {
+        completionsData.forEach(completion => {
+          const current = completionsMap.get(completion.user_id) || 0
+          completionsMap.set(completion.user_id, current + 1)
+        })
+      }
+
+      const progressData = (usersData || []).map(user => {
+        const completedWeeks = completionsMap.get(user.id) || 0
+        const journeyCompletion = Math.round((completedWeeks / 8) * 100)
+
+        return {
+          user_id: user.id,
+          user_email: user.email || 'Anonymous',
+          full_name: user.full_name || 'Anonymous',
+          completed_weeks: completedWeeks,
+          journey_completion: journeyCompletion,
+          is_active: true
+        }
+      }).sort((a, b) => b.journey_completion - a.journey_completion || b.completed_weeks - a.completed_weeks)
+
       if (mountedRef.current) {
         setProgressLeaderboard(progressData)
       }
@@ -130,9 +116,9 @@ export default function Leaderboard() {
         toast.error('Failed to load progress leaderboard')
       }
     }
-  }, [protectedFetchProgressLeaderboard])
+  }, [])
 
-  const handleRefresh = async () => {
+  const handleRefresh = useCallback(async () => {
     if (refreshing || loadingRef.current) return
     
     setRefreshing(true)
@@ -149,7 +135,7 @@ export default function Leaderboard() {
       }
       loadingRef.current = false
     }
-  }
+  }, [fetchJobLeaderboard, fetchProgressLeaderboard, refreshing])
 
   // Initial data load
   useEffect(() => {
@@ -172,85 +158,10 @@ export default function Leaderboard() {
     loadInitialData()
   }, [fetchJobLeaderboard, fetchProgressLeaderboard])
 
-  // Set up real-time subscriptions with cleanup
-  useEffect(() => {
-    if (!mountedRef.current) return
-
-    // Clean up existing subscriptions
-    subscriptionsRef.current.forEach(sub => sub?.unsubscribe())
-    subscriptionsRef.current = []
-
-    // Set up new subscriptions with debouncing
-    const jobApplicationsSubscription = supabase
-      .channel('job_applications_changes_leaderboard')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'job_applications'
-        },
-        () => {
-          // Clear existing debounce timeout
-          if (debounceTimeoutRef.current) {
-            clearTimeout(debounceTimeoutRef.current)
-          }
-          
-          // Debounce updates to prevent excessive calls
-          debounceTimeoutRef.current = setTimeout(() => {
-            if (!loadingRef.current && mountedRef.current) {
-              fetchJobLeaderboard()
-            }
-          }, 3000) // Increased debounce time
-        }
-      )
-      .subscribe()
-
-    const weekCompletionsSubscription = supabase
-      .channel('week_completions_changes_leaderboard')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'week_completions'
-        },
-        () => {
-          // Clear existing debounce timeout
-          if (debounceTimeoutRef.current) {
-            clearTimeout(debounceTimeoutRef.current)
-          }
-          
-          // Debounce updates to prevent excessive calls
-          debounceTimeoutRef.current = setTimeout(() => {
-            if (!loadingRef.current && mountedRef.current) {
-              fetchProgressLeaderboard()
-            }
-          }, 3000) // Increased debounce time
-        }
-      )
-      .subscribe()
-
-    subscriptionsRef.current = [jobApplicationsSubscription, weekCompletionsSubscription]
-
-    return () => {
-      subscriptionsRef.current.forEach(sub => sub?.unsubscribe())
-      subscriptionsRef.current = []
-      if (debounceTimeoutRef.current) {
-        clearTimeout(debounceTimeoutRef.current)
-        debounceTimeoutRef.current = null
-      }
-    }
-  }, [fetchJobLeaderboard, fetchProgressLeaderboard])
-
   // Cleanup on unmount
   useEffect(() => {
     return () => {
       mountedRef.current = false
-      subscriptionsRef.current.forEach(sub => sub?.unsubscribe())
-      if (debounceTimeoutRef.current) {
-        clearTimeout(debounceTimeoutRef.current)
-      }
     }
   }, [])
 
@@ -350,75 +261,11 @@ export default function Leaderboard() {
         </div>
 
         {/* Leaderboards */}
-        <Tabs defaultValue="job-search" className="space-y-6">
+        <Tabs defaultValue="progress" className="space-y-6">
           <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="job-search">Job Search Leaderboard</TabsTrigger>
-            <TabsTrigger value="progress">Journey Progress Leaderboard</TabsTrigger>
+            <TabsTrigger value="progress">Journey Progress</TabsTrigger>
+            <TabsTrigger value="job-search">Job Search</TabsTrigger>
           </TabsList>
-
-          <TabsContent value="job-search">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Briefcase className="h-5 w-5 text-blue-600" />
-                  Job Search Leaderboard
-                </CardTitle>
-                <CardDescription>
-                  Rankings based on job applications, interviews, and success rates
-                  {userJobRank > 0 && (
-                    <span className="block mt-1 font-medium text-blue-600">
-                      Your current rank: #{userJobRank}
-                    </span>
-                  )}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {jobLeaderboard.length === 0 ? (
-                  <div className="text-center py-12">
-                    <TrendingUp className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">No job applications yet</h3>
-                    <p className="text-gray-600">Be the first to add applications and claim the top spot!</p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {jobLeaderboard.slice(0, 20).map((entry, index) => (
-                      <div
-                        key={entry.user_id}
-                        className={`flex items-center justify-between p-4 rounded-lg border transition-colors ${
-                          entry.user_id === user?.id ? 'bg-blue-50 border-blue-200' : 'bg-white hover:bg-gray-50'
-                        }`}
-                      >
-                        <div className="flex items-center gap-4">
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold ${
-                            index === 0 ? 'bg-yellow-100 text-yellow-800' :
-                            index === 1 ? 'bg-gray-100 text-gray-800' :
-                            index === 2 ? 'bg-orange-100 text-orange-800' :
-                            'bg-blue-100 text-blue-800'
-                          }`}>
-                            {index + 1}
-                          </div>
-                          <div>
-                            <p className="font-medium">
-                              {entry.user_id === user?.id ? 'You' : (entry.full_name !== 'Anonymous' ? entry.full_name : entry.user_email?.split('@')[0] || 'Anonymous')}
-                            </p>
-                            <div className="flex items-center gap-4 text-sm text-gray-600">
-                              <span>{entry.total_applications} applications</span>
-                              <span>{entry.interviews} interviews</span>
-                              <span>{entry.offers} offers</span>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <p className="font-bold text-lg">{entry.success_rate}%</p>
-                          <p className="text-sm text-gray-600">Success Rate</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
 
           <TabsContent value="progress">
             <Card>
@@ -494,8 +341,76 @@ export default function Leaderboard() {
               </CardContent>
             </Card>
           </TabsContent>
+
+          <TabsContent value="job-search">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Briefcase className="h-5 w-5 text-blue-600" />
+                  Job Search Leaderboard
+                </CardTitle>
+                <CardDescription>
+                  Rankings based on job applications, interviews, and success rates
+                  {userJobRank > 0 && (
+                    <span className="block mt-1 font-medium text-blue-600">
+                      Your current rank: #{userJobRank}
+                    </span>
+                  )}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {jobLeaderboard.length === 0 ? (
+                  <div className="text-center py-12">
+                    <TrendingUp className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">No job applications yet</h3>
+                    <p className="text-gray-600">Be the first to add applications and claim the top spot!</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {jobLeaderboard.slice(0, 20).map((entry, index) => (
+                      <div
+                        key={entry.user_id}
+                        className={`flex items-center justify-between p-4 rounded-lg border transition-colors ${
+                          entry.user_id === user?.id ? 'bg-blue-50 border-blue-200' : 'bg-white hover:bg-gray-50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold ${
+                            index === 0 ? 'bg-yellow-100 text-yellow-800' :
+                            index === 1 ? 'bg-gray-100 text-gray-800' :
+                            index === 2 ? 'bg-orange-100 text-orange-800' :
+                            'bg-blue-100 text-blue-800'
+                          }`}>
+                            {index + 1}
+                          </div>
+                          <div>
+                            <p className="font-medium">
+                              {entry.user_id === user?.id ? 'You' : (entry.full_name !== 'Anonymous' ? entry.full_name : entry.user_email?.split('@')[0] || 'Anonymous')}
+                            </p>
+                            <div className="flex items-center gap-4 text-sm text-gray-600">
+                              <span>{entry.total_applications} applications</span>
+                              <span>{entry.interviews} interviews</span>
+                              <span>{entry.offers} offers</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-bold text-lg">{entry.success_rate}%</p>
+                          <p className="text-sm text-gray-600">Success Rate</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
         </Tabs>
       </div>
     </div>
   )
-}
+})
+
+Leaderboard.displayName = 'Leaderboard'
+
+export default Leaderboard

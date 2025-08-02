@@ -201,6 +201,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     signUp,
     signIn,
     signOut,
+    logout: signOut, // Alias for performance monitor
     resetPassword
   }
 
