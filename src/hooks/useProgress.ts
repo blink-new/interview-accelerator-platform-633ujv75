@@ -24,6 +24,10 @@ export const useProgress = () => {
   const subscriptionRef = useRef<any>(null)
   const userIdRef = useRef<string | null>(null)
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const mountedRef = useRef(true)
+  const lastDataRef = useRef<string>('')
+  const retryCountRef = useRef(0)
+  const maxRetries = 3
 
   // Create circuit breaker protected database call
   const protectedLoadProgress = useCallback(async (userId: string) => {
@@ -52,8 +56,8 @@ export const useProgress = () => {
 
   const loadProgress = useCallback(async () => {
     const currentUserId = user?.id
-    if (!currentUserId || loadingRef.current) {
-      if (!currentUserId) {
+    if (!currentUserId || loadingRef.current || !mountedRef.current) {
+      if (!currentUserId && mountedRef.current) {
         setProgressData({
           completedWeeks: [],
           overallProgress: 0,
@@ -67,25 +71,42 @@ export const useProgress = () => {
 
     try {
       const completions = await protectedLoadProgress(currentUserId)
-      const completed = completions.map(c => c.week_number)
+      const completed = completions.map(c => c.week_number).sort((a, b) => a - b)
       const progress = (completed.length / 8) * 100
 
-      setProgressData({
-        completedWeeks: completed,
-        overallProgress: progress,
-        isLoading: false
-      })
+      // Create a data signature to prevent unnecessary updates
+      const dataSignature = JSON.stringify({ completed, progress })
+      
+      // Only update if data actually changed and component is still mounted
+      if (mountedRef.current && dataSignature !== lastDataRef.current) {
+        lastDataRef.current = dataSignature
+        setProgressData({
+          completedWeeks: completed,
+          overallProgress: progress,
+          isLoading: false
+        })
+        retryCountRef.current = 0 // Reset retry count on success
+      }
     } catch (error) {
       console.error('Error loading progress:', error)
-      setProgressData({
-        completedWeeks: [],
-        overallProgress: 0,
-        isLoading: false
-      })
+      retryCountRef.current += 1
+      
+      if (mountedRef.current) {
+        // Only show error toast if we've exceeded max retries
+        if (retryCountRef.current >= maxRetries) {
+          toast.error('Failed to load progress data')
+        }
+        
+        setProgressData({
+          completedWeeks: [],
+          overallProgress: 0,
+          isLoading: false
+        })
+      }
     } finally {
       loadingRef.current = false
     }
-  }, [user, protectedLoadProgress])
+  }, [user?.id, protectedLoadProgress, maxRetries])
 
   const markWeekComplete = useCallback(async (weekNumber: number) => {
     const currentUserId = user?.id
@@ -124,7 +145,7 @@ export const useProgress = () => {
       subscriptionRef.current = null
     }
 
-    if (!currentUserId) {
+    if (!currentUserId || !mountedRef.current) {
       userIdRef.current = null
       return
     }
@@ -151,10 +172,10 @@ export const useProgress = () => {
             
             // Debounce the reload to prevent excessive calls
             debounceTimeoutRef.current = setTimeout(() => {
-              if (!loadingRef.current && userIdRef.current === currentUserId) {
+              if (!loadingRef.current && userIdRef.current === currentUserId && mountedRef.current && retryCountRef.current < maxRetries) {
                 loadProgress()
               }
-            }, 1000) // Increased debounce time
+            }, 5000) // Further increased debounce time to prevent excessive calls
           }
         )
         .subscribe()
@@ -175,10 +196,25 @@ export const useProgress = () => {
 
   // Initial load - only when user changes
   useEffect(() => {
-    if (user?.id !== userIdRef.current) {
+    if (user?.id !== userIdRef.current && mountedRef.current) {
       loadProgress()
     }
   }, [user?.id, loadProgress])
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false
+      if (subscriptionRef.current) {
+        subscriptionRef.current.unsubscribe()
+        subscriptionRef.current = null
+      }
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current)
+        debounceTimeoutRef.current = null
+      }
+    }
+  }, [])
 
   return {
     ...progressData,
